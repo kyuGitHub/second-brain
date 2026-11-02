@@ -1,6 +1,8 @@
 // 글꼴: Pretendard 를 프로젝트 안에 포함 (인터넷 없이도 동작, 필요한 글자 묶음만 불러옴)
 import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
 import ForceGraph from 'force-graph';
+import { gate } from './auth.js';
+import { loadGraph, loadNoteHtml, LOCAL } from './data.js';
 import ForceGraph3D from '3d-force-graph';
 import SpriteText from 'three-spritetext';
 import * as THREE from 'three';
@@ -71,11 +73,13 @@ let g2 = null, g3 = null, data2 = null, data3 = null, pendingFit = true, bloom =
 /* ───────────── 데이터 불러오기 ───────────── */
 async function load() {
   try {
-    const res = await fetch('data/graph.json', { cache: 'no-store' });
-    if (!res.ok) throw new Error(res.status);
-    G = await res.json();
+    showEmpty('그래프를 불러오는 중이에요…');
+    G = await loadGraph();
+    $('empty').hidden = true;
   } catch {
-    showEmpty('그래프 데이터를 찾지 못했어요.<br>터미널에서 <b>npm run graph</b> 를 먼저 실행해 주세요.');
+    showEmpty(LOCAL
+      ? '그래프 데이터를 찾지 못했어요.<br>터미널에서 <b>npm run graph</b> 를 먼저 실행해 주세요.'
+      : '그래프 데이터를 불러오지 못했어요.<br>아직 노트를 올리기 전이거나, 이 계정에 열람 권한이 없어요.<br>관리자에게 열람 명단 등록을 요청해 주세요.');
     return;
   }
   document.title = G.meta.title;
@@ -350,7 +354,7 @@ function ensure3d() {
     .nodeOpacity(0.95)
     .nodeVisibility(nodeVisible)
     .linkVisibility(linkVisible)
-    .linkOpacity(0.35)
+    .linkOpacity(G.nodes.length > 1000 ? 0.18 : 0.35)
     .linkWidth(0)
     .nodeLabel((n) => tipHtml(n))
     .onNodeHover((n) => { state.hover = n ? n.id : null; el.style.cursor = n ? 'pointer' : ''; refresh3d(); })
@@ -362,7 +366,10 @@ function ensure3d() {
   style3d();
   applySpacing(g3);
   try {
-    bloom = new UnrealBloomPass(new THREE.Vector2(el.clientWidth, el.clientHeight), 1.15, 0.55, 0.08);
+    // 노드가 많을수록 빛번짐을 줄여서 하얗게 뭉개지지 않게 한다
+    const big = G.nodes.length;
+    const strength = big > 1000 ? 0.45 : big > 400 ? 0.7 : 1.15;
+    bloom = new UnrealBloomPass(new THREE.Vector2(el.clientWidth, el.clientHeight), strength, 0.45, big > 400 ? 0.2 : 0.08);
     g3.postProcessingComposer().addPass(bloom);
   } catch { /* 빛번짐 효과 없이 표시 */ }
   const ctl = g3.controls();
@@ -631,8 +638,7 @@ async function openNote(id, { fromHash = false, back = false } = {}) {
 
   if (n.type === 'topic') { $('md').remove(); return; }
   try {
-    const res = await fetch('data/notes/' + n.file);
-    const { html } = await res.json();
+    const html = await loadNoteHtml(n.file);
     if (state.selected === id) $('md').innerHTML = html || '<p style="color:#8b8a82">본문이 비어 있어요.</p>';
   } catch {
     if (state.selected === id) $('md').innerHTML = '<p style="color:#8b8a82">본문을 불러오지 못했어요.</p>';
@@ -719,4 +725,4 @@ function focusNode(id) {
 new ResizeObserver(resize).observe($('stage'));
 // 그래프 라벨은 캔버스에 그려서, Pretendard 글자가 내려받아지면 다시 그려 준다
 document.fonts?.addEventListener?.('loadingdone', () => { if (!G) return; if (g3) style3d(); refresh(); });
-load();
+gate(load);

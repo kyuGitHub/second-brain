@@ -2,3 +2,8 @@ node_modules/
 dist/
 public/data/
 .DS_Store
+
+# 노트 원문과 비밀 값은 GitHub 에 올리지 않는다
+vault/
+.env
+.env.local

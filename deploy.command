@@ -3,11 +3,6 @@
 # 노트 원문은 GitHub 에 올라가지 않는다.
 cd "$(dirname "$0")"
 command -v node >/dev/null || { echo "[!] Node.js 가 없어요. https://nodejs.org 에서 LTS 버전을 설치해 주세요."; read -r; exit 1; }
-if [ ! -f .env ]; then
-  cp .env.example .env
-  echo "[!] 처음 한 번 설정이 필요해요. 열린 .env 파일의 값을 채우고 저장한 뒤 다시 실행해 주세요."
-  open -e .env; read -r; exit 1
-fi
 echo "[1/4] 최신 프로그램을 받아요..."
 command -v git >/dev/null && git pull --rebase --autostash
 npm install --no-audit --no-fund >/dev/null

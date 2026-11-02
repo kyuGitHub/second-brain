@@ -16,9 +16,9 @@ GitHub (프로그램만) ──▶ Vercel 자동 배포 ──▶ 접속 → 로
 - **GitHub 저장소와 웹사이트 파일에는 노트가 없어요.** 노트 데이터는 Supabase 비공개 저장소에만 있고, `brain_members` 명단에 있는 계정이 로그인해야 받을 수 있어요.
 - 내 PC에서 `start.bat` 으로 볼 때는 로그인 없이 원본 볼트를 바로 읽어요.
 
-## 1. 처음 한 번만: Supabase
+## 1. 처음 한 번만: Supabase (프로젝트 `knuenhkquktmxwawkawv`)
 
-어드민 제너레이터와 **같은 Supabase 프로젝트를 써도 돼요** (계정을 같이 씀). 그래도 세컨브레인은 아래 명단에 있는 계정만 볼 수 있어요.
+연결 정보(주소·공개 anon 키)는 `.env.production` 에 들어 있어서 따로 설정할 필요가 없어요. 이 두 값은 브라우저로 전달되는 공개용 값이고, 데이터 보호는 로그인 + 열람 명단 + 비공개 저장소 규칙이 맡아요. **`service_role` 키는 절대 저장소에 넣지 마세요.**
 
 1. Supabase 대시보드 → **SQL Editor → New query** 에 `supabase/schema.sql` 전체를 붙여넣고 **Run**
 2. 같은 화면에서 내 이메일을 명단에 넣기 (업로드 권한 포함):
@@ -26,29 +26,25 @@ GitHub (프로그램만) ──▶ Vercel 자동 배포 ──▶ 접속 → 로
    insert into public.brain_members (email, can_upload) values ('내이메일@example.com', true)
    on conflict (email) do update set can_upload = excluded.can_upload;
    ```
-3. 계정이 없다면: **Authentication → Users → Invite user** 로 초대 메일 발송 → 메일의 링크를 열면 비밀번호 설정 화면이 나와요.
-4. **Project Settings → API** 에서 `Project URL` 과 `anon public` 키를 복사해 두기
+3. **Authentication → URL Configuration → Site URL** 에 웹사이트 주소 넣기 (초대 메일 링크가 이 주소로 열려요)
+   - GitHub Pages: `https://kyugithub.github.io/second-brain/`
+   - Vercel 을 쓰면 Vercel 주소
+4. 내 계정 만들기: **Authentication → Users → Add user**
+   - **Send invitation**: 메일의 링크를 열면 비밀번호 설정 화면이 나와요
+   - 또는 **Create new user** 로 비밀번호를 직접 정하고 **Auto Confirm User** 켜기
 
-다른 사람에게 보여주려면: 초대 메일 발송 + `brain_members` 에 이메일 추가 (`can_upload` 은 false).
+다른 사람에게 보여주려면: 계정 초대 + `brain_members` 에 이메일 추가 (`can_upload` 은 false).
 
-## 2. 처음 한 번만: Vercel
+## 2. 웹사이트
 
-1. [Vercel 에서 Import](https://vercel.com/new/import?s=https%3A%2F%2Fgithub.com%2FkyuGitHub%2Fsecond-brain) → 저장소 `kyuGitHub/second-brain` 선택 (빌드 설정은 `vercel.json` 에 있어요)
-2. **Environment Variables** 에 두 개 등록 → Deploy
-   - `VITE_SUPABASE_URL` = Project URL
-   - `VITE_SUPABASE_ANON_KEY` = anon public 키
-3. Supabase → **Authentication → URL Configuration** 의 Site URL 에 Vercel 주소를 넣기 (초대 메일 링크가 이 주소로 열려요)
-
-> GitHub Pages 도 같은 화면으로 계속 배포돼요. 쓰려면 저장소 **Settings → Secrets and variables → Actions → Variables** 에 같은 두 값을 등록하세요. 등록 전에는 "설정이 필요해요" 화면만 보여요.
+- **GitHub Pages**: `main` 에 올라가면 자동 배포돼요 → https://kyugithub.github.io/second-brain/
+- **Vercel** (선택, 어드민 제너레이터와 같은 방식): [Import](https://vercel.com/new/import?s=https%3A%2F%2Fgithub.com%2FkyuGitHub%2Fsecond-brain) → 그대로 Deploy. 환경변수 설정은 필요 없어요.
 
 ## 3. 처음 한 번만: 내 PC
 
 1. [Node.js LTS](https://nodejs.org), [Git](https://git-scm.com) 설치
-2. `git clone https://github.com/kyuGitHub/second-brain.git D:\SecondBrain`
-3. `deploy.bat` 더블클릭 → 메모장에 `.env` 가 열리면 값 채우고 저장
-   - `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`: 위에서 복사한 값
-   - `SB_EMAIL`: 내 로그인 이메일 / `SB_PASSWORD`: 비워 두면 올릴 때마다 물어봐요
-   - `.env` 는 GitHub 에 올라가지 않아요
+2. `git clone https://github.com/kyuGitHub/second-brain.git D:\SecondBrain` (이미 있으면 그 폴더에서 `git pull`)
+3. (선택) `.env.example` 을 `.env` 로 복사해서 `SB_EMAIL` 을 적어 두면 올릴 때 이메일을 묻지 않아요.
 
 ## 4. 노트 올리기
 
@@ -88,7 +84,8 @@ GitHub (프로그램만) ──▶ Vercel 자동 배포 ──▶ 접속 → 로
 ```
 ├─ deploy.bat / deploy.command   노트 올리기 (Windows / Mac)
 ├─ start.bat  / start.command    내 PC에서 보기
-├─ config.json / .env.example    설정 / 비밀 값 양식
+├─ config.json                   설정
+├─ .env.production               Supabase 주소·공개 키 (공개용 값)
 ├─ supabase/schema.sql           열람 명단 + 비공개 저장소
 ├─ scripts/  sync-vault · build-graph · upload · dev
 └─ src/      main.js(그래프) · auth.js(로그인) · data.js(데이터 받기)

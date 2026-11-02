@@ -2,10 +2,8 @@
 // 웹사이트는 로그인한 열람 명단 사용자에게만 이 데이터를 보여준다.
 // 실행: npm run upload   (보통은 deploy.bat / deploy.command 가 대신 실행)
 //
-// 필요한 값 (.env 파일, GitHub 에 올라가지 않음):
-//   VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY  ← 웹사이트와 같은 값
-//   SB_EMAIL      ← 업로드 권한이 있는 내 계정 이메일
-//   SB_PASSWORD   ← (선택) 비워 두면 실행할 때마다 물어봄
+// Supabase 주소·공개 키는 .env.production 에 들어 있어요.
+// (선택) .env 파일에 SB_EMAIL / SB_PASSWORD 를 적어 두면 묻지 않아요. 없으면 실행할 때 물어봐요.
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -19,7 +17,7 @@ const fail = (msg) => { console.error('✖ ' + msg); process.exit(1); };
 
 // .env 읽기 (KEY=VALUE 형식)
 const env = { ...process.env };
-for (const f of ['.env', '.env.local']) {
+for (const f of ['.env', '.env.local', '.env.production']) { // 앞의 파일이 우선
   const p = path.join(ROOT, f);
   if (!fs.existsSync(p)) continue;
   for (const line of fs.readFileSync(p, 'utf8').split(/\r?\n/)) {
@@ -28,7 +26,7 @@ for (const f of ['.env', '.env.local']) {
   }
 }
 const url = env.VITE_SUPABASE_URL, key = env.VITE_SUPABASE_ANON_KEY;
-if (!url || !key) fail('.env 파일에 VITE_SUPABASE_URL 과 VITE_SUPABASE_ANON_KEY 를 적어 주세요. (.env.example 참고)');
+if (!url || !key) fail('.env.production 에 VITE_SUPABASE_URL 과 VITE_SUPABASE_ANON_KEY 가 없어요.');
 
 const ask = (q, hidden = false) => new Promise((resolve) => {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });

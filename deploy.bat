@@ -7,13 +7,6 @@ if errorlevel 1 (
   pause
   exit /b
 )
-if exist .env goto env_ok
-copy .env.example .env > nul
-echo [!] 처음 한 번 설정이 필요해요. 메모장에서 .env 의 값을 채우고 저장한 뒤 다시 실행해 주세요.
-notepad .env
-pause
-exit /b
-:env_ok
 echo [1/4] 최신 프로그램을 받아요...
 where git > nul 2> nul
 if not errorlevel 1 git pull --rebase --autostash

@@ -8,13 +8,13 @@ if errorlevel 1 (
   exit /b
 )
 git config user.email > nul 2> nul
-if errorlevel 1 (
-  echo [!] Git 에 이름과 이메일이 설정돼 있지 않아요. 처음 한 번만 입력해 주세요.
-  set /p GNAME=GitHub 아이디: 
-  set /p GMAIL=GitHub 이메일: 
-  call git config --global user.name "%GNAME%"
-  call git config --global user.email "%GMAIL%"
-)
+if not errorlevel 1 goto identity_ok
+echo [!] Git 에 이름과 이메일이 설정돼 있지 않아요. 처음 한 번만 입력해 주세요.
+set /p GNAME=GitHub 아이디: 
+set /p GMAIL=GitHub 이메일: 
+git config --global user.name "%GNAME%"
+git config --global user.email "%GMAIL%"
+:identity_ok
 if not exist node_modules call npm install
 echo [1/4] GitHub 의 최신 프로그램을 받아요...
 git pull --rebase --autostash

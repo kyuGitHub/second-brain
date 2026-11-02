@@ -38,12 +38,12 @@
         <div class="placeholder">카테고리 구성은 요구사항 정의 후 추가할 예정이에요.<br>(렌즈 · 주제 · 태그 · 핵심 주장 목록)</div>
       </section>
 
-      <section class="sb-sec" data-feature="categories">
+      <section class="sb-sec" data-feature="categories" hidden>
         <h2>렌즈</h2>
         <div class="chips" id="lens-chips"></div>
       </section>
 
-      <section class="sb-sec" data-feature="categories">
+      <section class="sb-sec" data-feature="categories" hidden>
         <h2>주제·태그로 거르기 <button class="link-btn" id="clear-filter" hidden>지우기</button></h2>
         <h3>주제</h3>
         <div class="chips" id="topic-chips"></div>
@@ -61,7 +61,7 @@
         <ul class="legend" id="edge-legend"></ul>
       </section>
 
-      <section class="sb-sec" data-feature="categories">
+      <section class="sb-sec" data-feature="categories" hidden>
         <h2>핵심 주장</h2>
         <ol class="thesis-list" id="thesis-list"></ol>
       </section>
@@ -72,7 +72,7 @@
     <!-- 가운데: 그래프 -->
     <main id="stage" class="stage">
       <button id="menu-btn" class="menu-btn" aria-label="설정 열기">☰</button>
-      <div class="search" data-feature="search">
+      <div class="search" data-feature="search" hidden>
         <span class="search-ic" aria-hidden="true">⌕</span>
         <input id="search" type="search" placeholder="세컨브레인에서 찾기…  ( / )" autocomplete="off" />
         <ul id="search-results" class="search-results" hidden></ul>

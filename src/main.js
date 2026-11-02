@@ -76,10 +76,12 @@ async function load() {
     showEmpty('그래프를 불러오는 중이에요…');
     G = await loadGraph();
     $('empty').hidden = true;
-  } catch {
+  } catch (err) {
+    const detail = esc(err?.message || err?.error || String(err || ''));
     showEmpty(LOCAL
       ? '그래프 데이터를 찾지 못했어요.<br>터미널에서 <b>npm run graph</b> 를 먼저 실행해 주세요.'
-      : '그래프 데이터를 불러오지 못했어요.<br>아직 노트를 올리기 전이거나, 이 계정에 열람 권한이 없어요.<br>관리자에게 열람 명단 등록을 요청해 주세요.');
+      : '그래프 데이터를 불러오지 못했어요.<br>아직 노트를 올리기 전이거나, 이 계정에 열람 권한이 없어요.<br>관리자에게 열람 명단 등록을 요청해 주세요.'
+        + (detail ? `<br><span style="opacity:.55;font-size:12px">(${detail})</span>` : ''));
     return;
   }
   document.title = G.meta.title;

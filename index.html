@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Second Brain</title>
+  <meta name="description" content="옵시디언 노트로 만든 개인 지식 그래프" />
+  <meta name="theme-color" content="#0a0a0a" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <!-- 왼쪽: 탐색 패널 -->
+    <aside id="sidebar" class="sidebar" aria-label="그래프 설정">
+      <header class="sb-head">
+        <div class="eyebrow">KNOWLEDGE GRAPH</div>
+        <h1 id="site-title">Second Brain</h1>
+        <p id="site-subtitle" class="subtitle"></p>
+        <p class="stats"><span id="stat-nodes">0</span> 노드 · <span id="stat-links">0</span> 연결</p>
+      </header>
+
+      <section class="sb-sec">
+        <h2>보기</h2>
+        <div class="seg seg-wrap" id="view-seg"></div>
+        <h3>색상 기준</h3>
+        <div class="seg" id="color-seg"></div>
+        <h3>간격</h3>
+        <div class="seg" id="spacing-seg"></div>
+        <div class="row-btns">
+          <button class="ghost-btn" id="recenter">⟲ 가운데로</button>
+          <button class="ghost-btn" id="toggle-labels">라벨 숨기기</button>
+        </div>
+        <p class="hint" id="view-hint"></p>
+      </section>
+
+      <section class="sb-sec" id="sec-category-placeholder" hidden>
+        <h2>카테고리</h2>
+        <div class="placeholder">카테고리 구성은 요구사항 정의 후 추가할 예정이에요.<br>(렌즈 · 주제 · 태그 · 핵심 주장 목록)</div>
+      </section>
+
+      <section class="sb-sec" data-feature="categories">
+        <h2>렌즈</h2>
+        <div class="chips" id="lens-chips"></div>
+      </section>
+
+      <section class="sb-sec" data-feature="categories">
+        <h2>주제·태그로 거르기 <button class="link-btn" id="clear-filter" hidden>지우기</button></h2>
+        <h3>주제</h3>
+        <div class="chips" id="topic-chips"></div>
+        <h3>태그</h3>
+        <div class="chips" id="tag-chips"></div>
+      </section>
+
+      <section class="sb-sec">
+        <h2>노드 유형</h2>
+        <ul class="legend" id="type-legend"></ul>
+      </section>
+
+      <section class="sb-sec">
+        <h2>연결 유형</h2>
+        <ul class="legend" id="edge-legend"></ul>
+      </section>
+
+      <section class="sb-sec" data-feature="categories">
+        <h2>핵심 주장</h2>
+        <ol class="thesis-list" id="thesis-list"></ol>
+      </section>
+
+      <footer class="sb-foot" id="built-at"></footer>
+    </aside>
+
+    <!-- 가운데: 그래프 -->
+    <main id="stage" class="stage">
+      <button id="menu-btn" class="menu-btn" aria-label="설정 열기">☰</button>
+      <div class="search" data-feature="search">
+        <span class="search-ic" aria-hidden="true">⌕</span>
+        <input id="search" type="search" placeholder="세컨브레인에서 찾기…  ( / )" autocomplete="off" />
+        <ul id="search-results" class="search-results" hidden></ul>
+      </div>
+      <div id="graph2d" class="graph"></div>
+      <div id="graph3d" class="graph" hidden></div>
+      <div id="timeline-bar" class="timeline-bar" hidden>
+        <span class="tl-label">기간</span>
+        <span id="tl-from"></span>
+        <div class="tl-range">
+          <input type="range" id="tl-min" min="0" max="100" value="0" />
+          <input type="range" id="tl-max" min="0" max="100" value="100" />
+        </div>
+        <span id="tl-to"></span>
+      </div>
+      <div id="tooltip" class="tooltip" hidden></div>
+      <div id="node-card" class="node-card" hidden></div>
+      <div id="empty" class="empty" hidden></div>
+    </main>
+
+    <!-- 오른쪽: 노트 본문 -->
+    <article id="panel" class="panel" hidden aria-live="polite">
+      <div class="panel-bar">
+        <button class="icon-btn" id="panel-back" title="뒤로">←</button>
+        <button class="icon-btn" id="panel-close" title="닫기">✕</button>
+      </div>
+      <div id="panel-body" class="panel-body"></div>
+    </article>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

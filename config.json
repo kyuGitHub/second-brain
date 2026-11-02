@@ -1,0 +1,37 @@
+{
+  "siteTitle": "Second Brain",
+  "siteSubtitle": "디지털 금융 PM의 지식 그래프",
+  "sourcePath": "D:/RIS Project",
+  "vaultPath": "./vault",
+  "exclude": [
+    ".obsidian",
+    ".trash",
+    "templates",
+    "Templates",
+    "private",
+    "_private",
+    "node_modules",
+    "SecondBrain",
+    ".git",
+    ".github",
+    ".claude",
+    "dist",
+    "vault",
+    "sample-vault"
+  ],
+  "publishMode": "all",
+  "defaultType": "semantic",
+  "folderTypes": {
+    "00 Thesis": "thesis",
+    "10 Concepts": "semantic",
+    "20 Playbooks": "procedural",
+    "30 Logs": "episodic",
+    "40 Reflections": "reflective",
+    "50 Entities": "entity"
+  },
+  "features": {
+    "categories": false,
+    "search": false,
+    "reader": false
+  }
+}

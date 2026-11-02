@@ -1,6 +1,6 @@
 # main 브랜치에 올리면 화면(프로그램)만 GitHub Pages 에 배포한다. 노트 데이터는 들어가지 않는다.
 # 데이터는 로그인 후 Supabase 비공개 저장소에서 받는다.
-# Supabase 값은 저장소 Settings → Secrets and variables → Actions → Variables 에 등록.
+# Supabase 연결 정보는 .env.production 에서 읽는다.
 name: Deploy Second Brain
 
 on:
@@ -28,9 +28,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-        env:
-          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

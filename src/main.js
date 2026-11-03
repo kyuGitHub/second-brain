@@ -251,7 +251,7 @@ function drawNode(n, ctx, scale) {
   const r = nodeRadius(n), c = nodeColor(n), a = nodeAlpha(n), dark = isDark();
   ctx.globalAlpha = a;
   // 빛번짐(그림자)은 비싸서 노드가 많으면 큰 노드에만 쓴다
-  if (dark && a > 0.5 && (G.nodes.length < 500 || labelAlways.has(n.id))) { ctx.shadowColor = c; ctx.shadowBlur = n.type === 'thesis' ? 5 : 2; }
+  if (dark && a > 0.5 && (G.nodes.length < 500 || labelAlways.has(n.id))) { ctx.shadowColor = c; ctx.shadowBlur = 0; }
   ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI); ctx.fillStyle = c; ctx.fill();
   ctx.shadowBlur = 0;
   if (dark && r > 2.5 && a > 0.5) { ctx.beginPath(); ctx.arc(n.x, n.y, r * 0.42, 0, 2 * Math.PI); ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill(); }
@@ -406,7 +406,7 @@ function ensure3d() {
   try {
     // 별(스프라이트)이 스스로 빛나므로 빛번짐은 은은하게
     const big = G.nodes.length;
-    bloom = new UnrealBloomPass(new THREE.Vector2(el.clientWidth, el.clientHeight), big > 800 ? 0.1 : 0.2, 0.15, 0.7); // 문턱을 높여 옅은 선은 번지지 않게
+    bloom = new UnrealBloomPass(new THREE.Vector2(el.clientWidth, el.clientHeight), big > 800 ? 0.04 : 0.1, 0.1, 0.8); // 문턱을 높여 옅은 선은 번지지 않게
     g3.postProcessingComposer().addPass(bloom);
   } catch { /* 빛번짐 효과 없이 표시 */ }
   const ctl = g3.controls();
@@ -435,10 +435,9 @@ function glowTexture(hex) {
   const cv = document.createElement('canvas'); cv.width = cv.height = 64;
   const x = cv.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
   g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(0.26, rgba(hex, 1));
-  g.addColorStop(0.36, rgba(hex, 0.45));
-  g.addColorStop(0.46, rgba(hex, 0.05));
-  g.addColorStop(0.58, rgba(hex, 0));
+  g.addColorStop(0.3, rgba(hex, 1));
+  g.addColorStop(0.38, rgba(hex, 0.35));
+  g.addColorStop(0.46, rgba(hex, 0));
   x.fillStyle = g; x.fillRect(0, 0, 64, 64);
   const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
   glowTex.set(hex, t); return t;

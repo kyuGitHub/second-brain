@@ -53,9 +53,11 @@ const state = {
   labels: saved.labels !== false,
   hiddenTypes: new Set(), hiddenEdges: new Set(),
   filterTopics: new Set(), filterTags: new Set(),
-  range: [0, 1], hover: null, selected: null, history: [],
+  range: [0, 1], hover: null, selected: null,
+  stack: [], panel: null,            // 오른쪽 패널: 현재 화면과 뒤로 가기 기록
+  scheme: saved.scheme || null, cat: null, catSet: null, expanded: new Set(), // 카테고리 선택
 };
-const savePrefs = () => { try { localStorage.setItem('sb-prefs', JSON.stringify({ view: state.view, lens: state.lens, colorBy: state.colorBy, spacing: state.spacing, labels: state.labels })); } catch { /* 저장 불가 환경 */ } };
+const savePrefs = () => { try { localStorage.setItem('sb-prefs', JSON.stringify({ view: state.view, lens: state.lens, colorBy: state.colorBy, spacing: state.spacing, labels: state.labels, scheme: state.scheme })); } catch { /* 저장 불가 환경 */ } };
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -67,6 +69,7 @@ let G = null; // 원본 그래프
 // 기능 스위치 (config.json 의 features). 요구사항이 정해지면 true 로 켠다.
 //  categories: 왼쪽 렌즈·주제·태그·핵심 주장 목록 / search: 검색창 / reader: 노트 본문 패널
 let F = { categories: false, search: false, reader: false };
+let labelAlways = new Set(); // 항상 이름을 보여줄 노드 (연결이 많은 색인)
 let byId = new Map(), nbr = new Map(), topicColorMap = new Map(), thesisZone = new Set(), dateDomain = [0, 1];
 let g2 = null, g3 = null, data2 = null, data3 = null, pendingFit = true, bloom = null;
 
@@ -92,8 +95,14 @@ async function load() {
   $('built-at').textContent = `마지막 갱신 ${new Date(G.meta.builtAt).toLocaleString('ko-KR')}`;
   F = { ...F, ...(G.meta.features || {}) };
   document.querySelectorAll('[data-feature]').forEach((el) => { el.hidden = !F[el.dataset.feature]; });
-  $('sec-category-placeholder').hidden = F.categories;
   if (!F.categories) state.lens = 'all';
+  // config.json 의 typeLabels 로 노드 유형 이름을 바꾼다 (예: thesis → 색인(MOC))
+  for (const [k, v] of Object.entries(G.meta.typeLabels || {})) if (TYPES[k]) { TYPES[k].ko = v; TYPES[k].en = ''; }
+  if (G.meta.typeLabels?.topic) { EDGES.topic.ko = G.meta.typeLabels.topic; EDGES.topic.out = G.meta.typeLabels.topic; EDGES.topic.in = `이 ${G.meta.typeLabels.topic}의 노트`; }
+  LENSES.thesis = `${TYPES.thesis.ko}별`;
+  LENSES.topic = `${TYPES.topic.ko}별`;
+  if (!G.nodes.some((n) => n.source === 'external')) delete LENSES.source;
+  if (!LENSES[state.lens]) state.lens = 'all';
   if (!G.nodes.length) { showEmpty('볼트에서 노트를 찾지 못했어요.<br>config.json 의 vaultPath 를 확인해 주세요.'); return; }
 
   byId = new Map(G.nodes.map((n) => [n.id, n]));
@@ -115,6 +124,10 @@ async function load() {
 
   // 핵심 주장에 직접 닿는 노드
   for (const n of G.nodes) if (n.type === 'thesis') { thesisZone.add(n.id); nbr.get(n.id).forEach((x) => byId.get(x)?.type !== 'topic' && thesisZone.add(x)); }
+
+  // 색인이 많으면 연결이 많은 상위 25개만 항상 이름을 보여준다 (나머지는 확대하면 보임)
+  const hubs = G.nodes.filter((n) => n.type === 'thesis').sort((a, b) => b.degree - a.degree);
+  labelAlways = new Set((hubs.length > 40 ? hubs.slice(0, 25) : hubs).map((n) => n.id));
 
   buildSidebar(topicCount);
   setView(state.view, { initial: true });
@@ -141,7 +154,7 @@ function inRange(n) {
   const t = (dayNum(n.date) - dateDomain[0]) / (dateDomain[1] - dateDomain[0]);
   return t >= state.range[0] - 1e-9 && t <= state.range[1] + 1e-9;
 }
-const nodeVisible = (n) => !state.hiddenTypes.has(n.type) && (!filterOn() || matchesFilter(n)) && inRange(n);
+const nodeVisible = (n) => !state.hiddenTypes.has(n.type) && (!state.catSet || state.catSet.has(n.id)) && (!filterOn() || matchesFilter(n)) && inRange(n);
 const linkVisible = (l) => {
   if (state.hiddenEdges.has(l.type)) return false;
   const s = byId.get(idOf(l.source)), t = byId.get(idOf(l.target));
@@ -203,7 +216,7 @@ function ensure2d() {
     .nodePointerAreaPaint((n, color, ctx) => { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(n.x, n.y, nodeRadius(n) + 2, 0, 2 * Math.PI); ctx.fill(); })
     .linkColor((l) => linkStyle(l).color)
     .linkWidth((l) => linkStyle(l).width)
-    .linkLineDash((l) => EDGES[l.type]?.dash || null)
+    .linkLineDash((l) => (G.links.length > 3000 ? null : EDGES[l.type]?.dash || null)) // 점선은 느려서 연결이 많으면 실선
     .onNodeHover((n) => { state.hover = n ? n.id : null; el.style.cursor = n ? 'pointer' : ''; showTip(n); })
     .onNodeClick((n) => openNote(n.id))
     .onBackgroundClick(() => { if (state.selected) closePanel(); })
@@ -218,7 +231,8 @@ function ensure2d() {
 function drawNode(n, ctx, scale) {
   const r = nodeRadius(n), c = nodeColor(n), a = nodeAlpha(n), dark = isDark();
   ctx.globalAlpha = a;
-  if (dark && a > 0.5) { ctx.shadowColor = c; ctx.shadowBlur = n.type === 'thesis' ? 22 : 9; }
+  // 빛번짐(그림자)은 비싸서 노드가 많으면 큰 노드에만 쓴다
+  if (dark && a > 0.5 && (G.nodes.length < 500 || labelAlways.has(n.id))) { ctx.shadowColor = c; ctx.shadowBlur = n.type === 'thesis' ? 22 : 9; }
   ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI); ctx.fillStyle = c; ctx.fill();
   ctx.shadowBlur = 0;
   if (n.type === 'topic' && !dark) { ctx.lineWidth = 1.2 / scale; ctx.strokeStyle = '#fff'; ctx.stroke(); }
@@ -226,7 +240,7 @@ function drawNode(n, ctx, scale) {
 
   const focus = state.hover || state.selected;
   const near = focus && (n.id === focus || nbr.get(focus)?.has(n.id));
-  const show = state.labels && (near || n.type === 'thesis' || (n.type === 'topic' && scale > 0.9) || scale > 2.6 || (!dark && scale > 1.6 && n.degree > 6));
+  const show = state.labels && (near || labelAlways.has(n.id) || (n.type === 'thesis' && scale > 1.4) || (n.type === 'topic' && scale > 0.9) || scale > 2.6 || (!dark && scale > 1.6 && n.degree > 6));
   if (show && a > 0.3) {
     const fs = (n.type === 'thesis' ? 12.5 : 11) / scale;
     ctx.font = `${n.type === 'thesis' ? 600 : 400} ${fs}px Pretendard Variable, Pretendard, Malgun Gothic, sans-serif`;
@@ -389,7 +403,7 @@ function style3d() {
   g3.nodeColor(color3)
     .linkColor((l) => linkStyle(l).color)
     .nodeThreeObject((n) => {
-      if (!state.labels || (n.type !== 'thesis' && !(n.type === 'topic' && G.nodes.length < 300))) return null;
+      if (!state.labels || (!labelAlways.has(n.id) && !(n.type === 'topic' && G.nodes.length < 300))) return null;
       const s = new SpriteText(n.title.length > 26 ? n.title.slice(0, 25) + '…' : n.title);
       s.color = n.type === 'thesis' ? '#ecf6be' : 'rgba(236,234,226,0.75)';
       s.textHeight = n.type === 'thesis' ? 3.6 : 2.6;
@@ -450,11 +464,8 @@ function buildSidebar(topicCount) {
   };
   chipActive('lens-chips', state.lens);
 
-  // 주제·태그
-  const tagCount = countBy(G.nodes.filter((n) => n.type !== 'topic').flatMap((n) => n.tags));
-  renderFilterChips('topic-chips', topicCount, state.filterTopics);
-  renderFilterChips('tag-chips', tagCount, state.filterTags);
-  $('clear-filter').onclick = () => { state.filterTopics.clear(); state.filterTags.clear(); renderFilterChips('topic-chips', topicCount, state.filterTopics); renderFilterChips('tag-chips', tagCount, state.filterTags); onFilterChange(); };
+  // 카테고리 트리
+  initCategories();
 
   // 노드 유형
   const typeCount = countBy(G.nodes.map((n) => n.type));
@@ -481,11 +492,6 @@ function buildSidebar(topicCount) {
   const lbl = $('toggle-labels');
   lbl.textContent = state.labels ? '라벨 숨기기' : '라벨 보이기';
   lbl.onclick = () => { state.labels = !state.labels; savePrefs(); lbl.textContent = state.labels ? '라벨 숨기기' : '라벨 보이기'; if (g3) style3d(); refresh(); };
-
-  // 핵심 주장 목록
-  const theses = G.nodes.filter((n) => n.type === 'thesis').sort((a, b) => b.degree - a.degree);
-  $('thesis-list').innerHTML = theses.length ? theses.map((n) => `<li data-id="${n.id}">${esc(n.title)}</li>`).join('') : '<li style="list-style:none;margin-left:-18px">아직 핵심 주장 노트가 없어요. 노트에 <code>type: thesis</code> 를 넣어 보세요.</li>';
-  $('thesis-list').onclick = (e) => { const li = e.target.closest('li[data-id]'); if (li) { openNote(li.dataset.id); closeSidebarMobile(); } };
 
   // 타임라인 범위
   const mi = $('tl-min'), ma = $('tl-max');
@@ -518,7 +524,6 @@ function renderFilterChips(id, counts, set) {
   };
 }
 function onFilterChange() {
-  $('clear-filter').hidden = !filterOn();
   refresh();
   pendingFit = true;
   if (VIEWS[state.view].three) g3.zoomToFit(600, 40, nodeVisible);
@@ -544,6 +549,176 @@ function updateTimelineLabels() {
   const f = (t) => new Date((d0 + t * (d1 - d0)) * 864e5).toISOString().slice(0, 10);
   $('tl-from').textContent = f(state.range[0]);
   $('tl-to').textContent = f(state.range[1]);
+}
+
+/* ───────────── 카테고리 트리 ───────────── */
+const catDefs = () => G?.meta?.categories || [];
+const catLabel = (name) => String(name).replace(/^\d+_/, ''); // "10_회의록&인터뷰" → "회의록&인터뷰"
+const pathKey = (scheme, path) => scheme + '::' + path.join('\u0001');
+let catTree = null;
+
+function initCategories() {
+  const defs = catDefs();
+  if (!defs.length) { document.querySelectorAll('[data-feature="categories"]').forEach((el) => { if (el.querySelector('#cat-tree')) el.hidden = true; }); return; }
+  if (!defs.some((d) => d.key === state.scheme)) state.scheme = defs[0].key;
+  const sel = $('cat-scheme');
+  sel.innerHTML = defs.map((d) => `<option value="${esc(d.key)}">${esc(d.label)}</option>`).join('');
+  sel.value = state.scheme;
+  sel.onchange = () => { setScheme(sel.value); clearCat(); };
+  $('cat-clear').onclick = () => { clearCat(); if (state.panel?.kind === 'list') closePanel(); };
+  $('cat-tree').onclick = (e) => {
+    const row = e.target.closest('.ct-row'); if (!row) return;
+    const path = JSON.parse(row.dataset.path);
+    if (e.target.closest('.ct-tog')) { toggleExpand(path); return; }
+    if (!path.length) { clearCat(); if (state.panel?.kind === 'list') closePanel(); return; }
+    const same = state.cat && state.cat.scheme === state.scheme && pathKey(state.scheme, state.cat.path) === pathKey(state.scheme, path);
+    if (same && state.panel?.kind === 'list') { clearCat(); closePanel(); return; }
+    selectCat(path);
+    closeSidebarMobile();
+  };
+  $('cat-tree').onkeydown = (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const row = e.target.closest('.ct-row'); if (!row) return;
+    e.preventDefault(); row.click();
+  };
+  buildTree();
+}
+
+function setScheme(key) {
+  state.scheme = key; savePrefs();
+  $('cat-scheme').value = key;
+  buildTree();
+}
+
+function buildTree() {
+  const root = { name: '', ids: new Set(), children: new Map() };
+  for (const n of G.nodes) {
+    if (n.type === 'topic') continue;
+    for (const p of n.cats?.[state.scheme] || []) {
+      let node = root; root.ids.add(n.id);
+      for (const part of p) {
+        if (!node.children.has(part)) node.children.set(part, { name: part, ids: new Set(), children: new Map() });
+        node = node.children.get(part); node.ids.add(n.id);
+      }
+    }
+  }
+  catTree = root;
+  renderTree();
+}
+
+function findCat(path) {
+  let node = catTree;
+  for (const part of path) { node = node?.children.get(part); if (!node) return null; }
+  return node;
+}
+
+function renderTree() {
+  const byName = state.scheme === 'folder' || state.scheme === 'domain';
+  const sortKids = (m) => [...m.values()].sort((a, b) => (a.name === '(미분류)') - (b.name === '(미분류)')
+    || (byName ? a.name.localeCompare(b.name, 'ko', { numeric: true }) : b.ids.size - a.ids.size || a.name.localeCompare(b.name, 'ko')));
+  const selKey = state.cat && state.cat.scheme === state.scheme ? pathKey(state.scheme, state.cat.path) : null;
+  const rows = (node, path, depth) => sortKids(node.children).map((c) => {
+    const p = [...path, c.name], key = pathKey(state.scheme, p);
+    const open = state.expanded.has(key);
+    const kids = c.children.size;
+    return `<div class="ct-item" role="treeitem" ${kids ? `aria-expanded="${open}"` : ''} aria-selected="${key === selKey}">
+      <div class="ct-row${key === selKey ? ' on' : ''}" tabindex="0" data-path="${esc(JSON.stringify(p))}" style="padding-left:${6 + depth * 14}px">
+        ${kids ? `<button type="button" class="ct-tog" aria-label="${open ? '접기' : '펼치기'}">${open ? '▾' : '▸'}</button>` : '<span class="ct-sp"></span>'}
+        <span class="ct-name" title="${esc(c.name)}">${esc(catLabel(c.name))}</span><span class="ct-n">${c.ids.size}</span>
+      </div>
+      ${kids && open ? `<div class="ct-kids" role="group">${rows(c, p, depth + 1)}</div>` : ''}
+    </div>`;
+  }).join('');
+  $('cat-tree').innerHTML = `<div class="ct-row ct-all${selKey ? '' : ' on'}" tabindex="0" data-path="[]"><span class="ct-sp"></span><span class="ct-name">전체 문서</span><span class="ct-n">${catTree.ids.size}</span></div>` + rows(catTree, [], 0);
+  $('cat-clear').hidden = !state.cat;
+}
+
+function toggleExpand(path) {
+  const key = pathKey(state.scheme, path);
+  state.expanded.has(key) ? state.expanded.delete(key) : state.expanded.add(key);
+  renderTree();
+}
+
+// 카테고리를 고르면: 그래프는 그 분류의 노트(+연결된 대분류 노드)만, 오른쪽엔 문서 목록
+function applyCat(scheme, path) {
+  if (scheme !== state.scheme) setScheme(scheme);
+  const node = findCat(path);
+  if (!node) { clearCat(); return false; }
+  state.cat = { scheme, path };
+  const set = new Set(node.ids);
+  for (const id of node.ids) for (const nb of nbr.get(id) || []) if (byId.get(nb)?.type === 'topic') set.add(nb);
+  state.catSet = set;
+  for (let i = 1; i < path.length; i++) state.expanded.add(pathKey(scheme, path.slice(0, i))); // 상위 항목 펼치기
+  renderTree();
+  onFilterChange();
+  return true;
+}
+function selectCat(path) { if (applyCat(state.scheme, path)) { listLimit = 200; openList(); } }
+function clearCat() {
+  state.cat = null; state.catSet = null;
+  renderTree();
+  onFilterChange();
+}
+
+/* ───────────── 문서 목록 (카테고리별로 글 보기) ───────────── */
+let listLimit = 200, listSort = 'name', listQuery = '';
+function openList({ back = false } = {}) {
+  if (!state.cat || !F.reader) return;
+  if (!back && state.panel && state.panel.kind !== 'list') state.stack.push(state.panel);
+  state.panel = { kind: 'list', scheme: state.cat.scheme, path: state.cat.path };
+  state.selected = null;
+  $('node-card').hidden = true;
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  $('panel').hidden = false;
+  $('panel-back').disabled = !state.stack.length;
+  listQuery = '';
+  const def = catDefs().find((d) => d.key === state.cat.scheme);
+  $('panel-body').innerHTML = `
+    <div class="p-type">카테고리 · ${esc(def?.label || '')}</div>
+    <h2 class="p-title">${state.cat.path.map((p) => esc(catLabel(p))).join(' <span class="crumb">›</span> ')}</h2>
+    <div class="list-tools">
+      <input type="search" id="list-q" placeholder="이 목록에서 찾기" autocomplete="off" />
+      <div class="seg list-sort" role="group" aria-label="정렬">
+        <button type="button" data-sort="name">이름순</button><button type="button" data-sort="recent">최근 수정순</button><button type="button" data-sort="links">연결 많은 순</button>
+      </div>
+    </div>
+    <div id="list-box"></div>`;
+  $('list-q').oninput = (e) => { listQuery = e.target.value.trim().toLowerCase(); listLimit = 200; renderList(); };
+  renderList();
+  $('panel-body').scrollTop = 0;
+  refresh();
+}
+function renderList() {
+  const box = $('list-box'); if (!box || !state.cat) return;
+  const node = findCat(state.cat.path);
+  let items = [...(node?.ids || [])].map((id) => byId.get(id)).filter(Boolean);
+  if (listQuery) items = items.filter((n) => (n.title + ' ' + Object.values(n.props || {}).join(' ')).toLowerCase().includes(listQuery));
+  const cmp = {
+    name: (a, b) => a.title.localeCompare(b.title, 'ko', { numeric: true }),
+    recent: (a, b) => String(b.date || '').localeCompare(String(a.date || '')) || a.title.localeCompare(b.title, 'ko'),
+    links: (a, b) => b.degree - a.degree || a.title.localeCompare(b.title, 'ko'),
+  }[listSort];
+  items.sort(cmp);
+  document.querySelectorAll('.list-sort button').forEach((b) => b.classList.toggle('on', b.dataset.sort === listSort));
+  const shown = items.slice(0, listLimit);
+  box.innerHTML = `<div class="list-count">문서 ${items.length.toLocaleString()}개</div>`
+    + (items.length ? shown.map((n) => {
+      const sub = [n.docType, n.props?.['요구사항ID'], n.props?.['업무'], n.date].filter(Boolean).map(esc).join(' · ');
+      const cancel = n.props?.['처리결과'] === '취소선';
+      return `<button type="button" class="li-item${cancel ? ' cancel' : ''}" data-id="${n.id}">
+        <span class="dot" style="background:${TYPES[n.type]?.light}"></span>
+        <span class="li-main"><span class="li-t">${esc(n.title)}</span><span class="li-s">${sub}</span></span>
+        ${cancel ? '<span class="li-badge">취소</span>' : ''}
+      </button>`;
+    }).join('') : '<p class="hint">조건에 맞는 문서가 없어요.</p>')
+    + (items.length > shown.length ? `<button type="button" class="ghost-btn more-btn" data-more="1">${(items.length - shown.length).toLocaleString()}개 더 보기</button>` : '');
+}
+
+// 노트 속성표 (요구사항ID, 업무, 대분류 등 프런트매터 값)
+function propsHtml(n) {
+  const entries = Object.entries(n.props || {}).filter(([k]) => k !== 'updated');
+  if (!entries.length) return '';
+  return `<dl class="props">${entries.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`;
 }
 
 /* ───────────── 툴팁 ───────────── */
@@ -603,7 +778,7 @@ sIn.addEventListener('blur', () => setTimeout(() => (sOut.hidden = true), 120));
 function pick(id) { sOut.hidden = true; sIn.value = ''; sIn.blur(); openNote(id); }
 document.addEventListener('keydown', (e) => {
   if (F.search && e.key === '/' && document.activeElement !== sIn) { e.preventDefault(); sIn.focus(); }
-  if (e.key === 'Escape' && document.activeElement !== sIn && state.selected) closePanel();
+  if (e.key === 'Escape' && document.activeElement !== sIn && (state.selected || state.panel)) closePanel();
 });
 
 /* ───────────── 노트 패널 ───────────── */
@@ -616,24 +791,27 @@ function onHash() {
 async function openNote(id, { fromHash = false, back = false } = {}) {
   const n = byId.get(id);
   if (!n) return;
-  if (state.selected && state.selected !== id && !back) state.history.push(state.selected);
+  if (!back && state.panel && !(state.panel.kind === 'note' && state.panel.id === id)) state.stack.push(state.panel);
+  state.panel = { kind: 'note', id };
   state.selected = id;
   if (!fromHash) history.replaceState(null, '', '#/note/' + encodeURIComponent(id));
   if (!F.reader) { showNodeCard(n); focusNode(id); refresh(); return; }
   $('panel').hidden = false;
-  $('panel-back').disabled = !state.history.length;
+  $('panel-back').disabled = !state.stack.length;
   focusNode(id);
   refresh();
 
   const t = TYPES[n.type];
   const chips = [...n.topics.map((x) => `<button class="chip" data-topic="${esc(x)}">${esc(x)}</button>`), ...n.tags.map((x) => `<button class="chip" data-tag="${esc(x)}">#${esc(x)}</button>`)].join('');
-  const meta = [n.date, n.type !== 'topic' && (n.source === 'external' ? '외부 자료' : '내 생각'), n.folder, n.url && `<a href="${esc(n.url)}" target="_blank" rel="noopener">원문 링크 ↗</a>`].filter(Boolean).join('<span>·</span>');
+  const meta = [n.date && `수정 ${n.date}`, n.docType, n.folder && n.folder.replace(/^\d+_/, ''), n.url && `<a href="${esc(n.url)}" target="_blank" rel="noopener">원문 링크 ↗</a>`].filter(Boolean).join('<span>·</span>');
   const body = $('panel-body');
   body.innerHTML = `
-    <div class="p-type"><span class="dot" style="background:${t?.light}"></span>${t?.ko || n.type} · ${t?.en || ''}</div>
+    <div class="p-type"><span class="dot" style="background:${t?.light}"></span>${t?.ko || n.type}${t?.en ? ' · ' + t.en : ''}</div>
     <h2 class="p-title">${esc(n.title)}</h2>
     <div class="p-meta">${meta}</div>
+    ${n.props?.['처리결과'] === '취소선' ? '<div class="badge-cancel">취소된 요구사항</div>' : ''}
     ${chips ? `<div class="p-chips">${chips}</div>` : ''}
+    ${propsHtml(n)}
     <div class="md" id="md">${n.type === 'topic' ? '' : '<p style="color:#8b8a82">불러오는 중…</p>'}</div>
     <div class="rel">${relatedHtml(n)}</div>`;
   body.scrollTop = 0;
@@ -672,13 +850,22 @@ $('panel-body').addEventListener('click', (e) => {
   const tp = e.target.closest('[data-topic]');
   if (tp) { const topic = G.nodes.find((x) => x.type === 'topic' && x.title === tp.dataset.topic); if (topic) openNote(topic.id); return; }
   const tg = e.target.closest('[data-tag]');
-  if (tg) { state.filterTags.clear(); state.filterTags.add(tg.dataset.tag); document.querySelectorAll('#tag-chips .chip').forEach((b) => b.classList.toggle('on', b.dataset.k === tg.dataset.tag)); closePanel(); onFilterChange(); }
+  if (tg) { if (catDefs().some((d) => d.key === 'tag')) { setScheme('tag'); selectCat(tg.dataset.tag.split('/')); } return; }
+  const more = e.target.closest('[data-more]');
+  if (more) { listLimit += 200; renderList(); return; }
+  const srt = e.target.closest('[data-sort]');
+  if (srt) { listSort = srt.dataset.sort; renderList(); }
 });
 $('panel-close').onclick = () => closePanel();
-$('panel-back').onclick = () => { const prev = state.history.pop(); if (prev) openNote(prev, { back: true }); };
+$('panel-back').onclick = () => {
+  const prev = state.stack.pop();
+  if (!prev) return;
+  if (prev.kind === 'list') { applyCat(prev.scheme, prev.path); openList({ back: true }); }
+  else openNote(prev.id, { back: true });
+};
 
 function closePanel({ fromHash = false } = {}) {
-  state.selected = null; state.history = [];
+  state.selected = null; state.stack = []; state.panel = null;
   $('panel').hidden = true;
   $('node-card').hidden = true;
   if (!fromHash) history.replaceState(null, '', location.pathname + location.search);
@@ -699,7 +886,7 @@ function showNodeCard(n) {
   const card = $('node-card');
   card.innerHTML = `
     <button class="nc-close" aria-label="닫기">✕</button>
-    <div class="nc-type"><span class="dot" style="background:${t?.light}"></span>${t?.ko || n.type} · ${t?.en || ''}${n.date ? ' · ' + n.date : ''}</div>
+    <div class="nc-type"><span class="dot" style="background:${t?.light}"></span>${t?.ko || n.type}${t?.en ? ' · ' + t.en : ''}${n.date ? ' · ' + n.date : ''}</div>
     <div class="nc-title">${esc(n.title)}</div>
     ${n.summary && n.type !== 'topic' ? `<div>${esc(n.summary.slice(0, 90))}${n.summary.length > 90 ? '…' : ''}</div>` : ''}
     <div class="nc-rel"><span><b>연결 ${total}</b></span>${rel}</div>`;

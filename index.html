@@ -19,6 +19,14 @@
         <p class="stats"><span id="stat-nodes">0</span> 노드 · <span id="stat-links">0</span> 연결</p>
       </header>
 
+      <section class="sb-sec" data-feature="categories" hidden>
+        <h2>카테고리 <button class="link-btn" id="cat-clear" hidden>선택 해제</button></h2>
+        <label class="sr-only" for="cat-scheme">분류 기준</label>
+        <select id="cat-scheme" class="cat-scheme"></select>
+        <div id="cat-tree" class="cat-tree" role="tree" aria-label="카테고리"></div>
+        <p class="hint">항목을 누르면 그래프가 그 분류만 보여주고, 오른쪽에 문서 목록이 열려요.</p>
+      </section>
+
       <section class="sb-sec">
         <h2>보기</h2>
         <div class="seg seg-wrap" id="view-seg"></div>
@@ -33,22 +41,9 @@
         <p class="hint" id="view-hint"></p>
       </section>
 
-      <section class="sb-sec" id="sec-category-placeholder" hidden>
-        <h2>카테고리</h2>
-        <div class="placeholder">카테고리 구성은 요구사항 정의 후 추가할 예정이에요.<br>(렌즈 · 주제 · 태그 · 핵심 주장 목록)</div>
-      </section>
-
       <section class="sb-sec" data-feature="categories" hidden>
         <h2>렌즈</h2>
         <div class="chips" id="lens-chips"></div>
-      </section>
-
-      <section class="sb-sec" data-feature="categories" hidden>
-        <h2>주제·태그로 거르기 <button class="link-btn" id="clear-filter" hidden>지우기</button></h2>
-        <h3>주제</h3>
-        <div class="chips" id="topic-chips"></div>
-        <h3>태그</h3>
-        <div class="chips" id="tag-chips"></div>
       </section>
 
       <section class="sb-sec">
@@ -59,11 +54,6 @@
       <section class="sb-sec">
         <h2>연결 유형</h2>
         <ul class="legend" id="edge-legend"></ul>
-      </section>
-
-      <section class="sb-sec" data-feature="categories" hidden>
-        <h2>핵심 주장</h2>
-        <ol class="thesis-list" id="thesis-list"></ol>
       </section>
 
       <footer class="sb-foot" id="built-at"></footer>

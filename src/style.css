@@ -263,3 +263,54 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .account-bar button { flex: none; border: 1px solid var(--line); background: transparent; border-radius: 6px; padding: 4px 8px; font-size: 11.5px; color: var(--ink-2); }
 .account-bar button:hover { color: var(--ink); border-color: var(--ink-3); }
 .empty[hidden] { display: none; }
+
+/* ── 카테고리 트리 ── */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.cat-scheme {
+  width: 100%; height: 34px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink);
+  font: inherit; font-size: 12.5px; padding: 0 8px; margin-bottom: 10px;
+}
+.cat-tree { display: grid; gap: 1px; max-height: 46vh; overflow-y: auto; margin: 0 -6px; scrollbar-width: thin; }
+.ct-row {
+  display: flex; align-items: center; gap: 4px; min-height: 30px; padding-right: 6px; border-radius: 6px;
+  font-size: 12.5px; color: var(--ink-2); cursor: pointer; user-select: none;
+}
+.ct-row:hover { background: var(--paper-2); color: var(--ink); }
+.ct-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ct-row.on { background: var(--ink); color: var(--paper); }
+.ct-row.on .ct-n { color: rgba(244,243,238,.65); }
+.ct-all { padding-left: 6px; font-weight: 600; }
+.ct-tog { flex: none; width: 22px; height: 22px; border: 0; background: none; padding: 0; font-size: 11px; color: inherit; border-radius: 4px; }
+.ct-tog:hover { background: rgba(0,0,0,.06); }
+.ct-sp { flex: none; width: 22px; }
+.ct-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-n { flex: none; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+/* ── 문서 목록 ── */
+.crumb { color: var(--ink-3); font-weight: 400; }
+.list-tools { display: grid; gap: 8px; margin: 12px 0 6px; }
+.list-tools input {
+  height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px; font: inherit; font-size: 13.5px; background: #fff;
+}
+.list-tools input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.list-sort button { font-size: 11.5px; }
+.list-count { font-size: 11.5px; color: var(--ink-3); margin: 8px 0 4px; }
+.li-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; background: none;
+  padding: 9px 8px; margin: 0 -8px; width: calc(100% + 16px); border-radius: 8px; border-bottom: 1px solid var(--line);
+}
+.li-item:hover { background: var(--paper-2); }
+.li-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.li-item .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.li-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.li-t { font-size: 13.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.li-s { font-size: 11.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.li-item.cancel .li-t { text-decoration: line-through; color: var(--ink-3); }
+.li-badge, .badge-cancel { flex: none; font-size: 10.5px; color: #a33a1f; background: #fbe9e1; border-radius: 5px; padding: 2px 6px; }
+.badge-cancel { display: inline-block; margin-top: 10px; font-size: 11.5px; }
+.more-btn { width: 100%; margin-top: 12px; }
+
+/* ── 노트 속성표 ── */
+.props { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 16px 0 0; padding: 12px 14px; background: var(--paper-2); border-radius: 10px; font-size: 12.5px; }
+.props dt { color: var(--ink-3); }
+.props dd { margin: 0; color: var(--ink); min-width: 0; overflow-wrap: anywhere; }

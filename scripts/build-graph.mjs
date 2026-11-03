@@ -123,8 +123,19 @@ export function build({ quiet = false } = {}) {
   fs.mkdirSync(path.join(OUT, 'assets'), { recursive: true });
 
   // 1단계: 노트 메타데이터 수집
+  // 설정에서 읽는 값들
+  const include = (cfg.includeFolders || []).map((f) => f.replace(/\/+$/, '') + '/');
+  const hideWhere = cfg.hideWhere || {};
+  const typeMap = Object.fromEntries(Object.entries(cfg.typeMap || {}).map(([k, v]) => [k.toLowerCase().replace(/\s+/g, ''), v]));
+  const F = { topics: ['topics', 'topic', '주제'], tags: ['tags', 'tag'], dates: ['date', 'created', '작성일'], ...(cfg.fields || {}) };
+  const pick = (fm, keys) => keys.flatMap((k) => asList(fm[k]));
+  const catDefs = cfg.categories || [];
+  const propFields = cfg.propFields || [];
+
   const notes = [];
   for (const file of mdFiles) {
+    const relPath = path.relative(cfg.vaultAbs, file).split(path.sep).join('/');
+    if (include.length && !include.some((f) => relPath.startsWith(f))) continue; // 지정한 폴더만
     const raw = fs.readFileSync(file, 'utf8');
     let parsed;
     try { parsed = matter(raw); } catch (e) {
@@ -134,12 +145,31 @@ export function build({ quiet = false } = {}) {
     const fm = parsed.data || {};
     if (fm.publish === false || fm.private === true) continue;
     if (cfg.publishMode === 'flag' && fm.publish !== true) continue;
+    // 숨길 값 (예: 처리결과 = 숨김)
+    if (Object.entries(hideWhere).some(([k, vals]) => asList(fm[k]).some((v) => vals.includes(v)))) continue;
 
     const rel = path.relative(cfg.vaultAbs, file).split(path.sep).join('/');
     const base = path.basename(file, path.extname(file));
-    const topFolder = rel.includes('/') ? rel.split('/')[0] : '';
-    const rawType = String(fm.type || '').trim().toLowerCase().replace(/\s+/g, '');
-    const type = TYPE_ALIASES[rawType] || (cfg.folderTypes || {})[topFolder] || cfg.defaultType || 'semantic';
+    // 분류용 폴더 경로: 지정 폴더(예: 1_위키) 아래부터
+    const root = include.find((f) => rel.startsWith(f)) || '';
+    const folderParts = rel.slice(root.length).split('/').slice(0, -1);
+    const topFolder = folderParts[0] || rel.split('/').slice(0, -1)[0] || '';
+    const docType = String(fm.type || '').trim();
+    const rawType = docType.toLowerCase().replace(/\s+/g, '');
+    const type = typeMap[rawType] || TYPE_ALIASES[rawType] || (cfg.folderTypes || {})[topFolder] || cfg.defaultType || 'semantic';
+    // 카테고리: 분류 기준마다 [경로] 목록
+    const cats = {};
+    for (const d of catDefs) {
+      let paths;
+      if (d.field === '$folder') paths = [folderParts.length ? folderParts : ['(최상위)']];
+      else if (Array.isArray(d.field)) {
+        const p = []; for (const f of d.field) { const v = asList(fm[f])[0]; if (!v) break; p.push(String(v)); }
+        paths = [p];
+      } else paths = asList(fm[d.field]).map(stripLink).filter(Boolean).map((v) => (d.split ? v.split(d.split).map((x) => x.trim()).filter(Boolean) : [v]));
+      cats[d.key] = paths.filter((p) => p.length).length ? paths.filter((p) => p.length) : [['(미분류)']];
+    }
+    const props = {};
+    for (const f of propFields) { const v = asList(fm[f]).map((x) => (x instanceof Date ? x.toISOString().slice(0, 10) : String(x))).join(', '); if (v) props[f] = v.slice(0, 200); }
     const stat = fs.statSync(file);
     notes.push({
       id: 'n-' + shortHash(rel),
@@ -147,10 +177,10 @@ export function build({ quiet = false } = {}) {
       title: String(fm.title || base),
       aliases: asList(fm.aliases || fm.alias),
       type,
-      folder: topFolder,
-      topics: asList(fm.topics || fm.topic || fm.주제).map(stripLink).filter(Boolean),
-      tags: asList(fm.tags || fm.tag).map((t) => t.replace(/^#/, '')).filter(Boolean),
-      date: toDate(fm.date || fm.created || fm.작성일) || toDate(stat.mtime),
+      folder: topFolder, docType, cats, props,
+      topics: [...new Set(pick(fm, F.topics).map(stripLink).filter(Boolean))],
+      tags: [...new Set(pick(fm, F.tags).map((t) => t.replace(/^#/, '')).filter(Boolean))],
+      date: toDate(F.dates.map((k) => fm[k]).find(Boolean)) || toDate(stat.mtime),
       source: fm.source === 'external' || fm.출처 === '외부' || ((fm.url || fm.source_url) && fm.source !== 'mine') ? 'external' : 'mine',
       url: fm.url || fm.source_url || null,
     });
@@ -179,7 +209,7 @@ export function build({ quiet = false } = {}) {
   };
   const topicNodes = new Map();
   const topicId = (name) => {
-    if (!topicNodes.has(name)) topicNodes.set(name, { id: 't-' + shortHash(name), title: name, type: 'topic', topics: [name], tags: [], date: null, source: 'mine', folder: '' });
+    if (!topicNodes.has(name)) topicNodes.set(name, { id: 't-' + shortHash(name), title: name, type: 'topic', topics: [name], tags: [], date: null, source: 'mine', folder: '', cats: {}, props: {} });
     return topicNodes.get(name).id;
   };
 
@@ -242,7 +272,7 @@ export function build({ quiet = false } = {}) {
     const plain = n.body.replace(/^#.*$/gm, '').replace(/!\[\[[^\]]*\]\]/g, '').replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (m, a, b) => b || a)
       .replace(/[*_>`#=\-]/g, '').replace(/\s+/g, ' ').trim();
     n.summary = String(n.fm.summary || n.fm.요약 || plain.slice(0, 160));
-    n.searchText = (n.title + ' ' + n.aliases.join(' ') + ' ' + plain).slice(0, 4000);
+    n.searchText = (n.title + ' ' + n.aliases.join(' ') + ' ' + Object.values(n.props).join(' ') + ' ' + plain).slice(0, 1500);
     n.file = shortHash(n.id) + '.json';
     fs.writeFileSync(path.join(OUT, 'notes', n.file), JSON.stringify({ html }));
   }
@@ -250,7 +280,7 @@ export function build({ quiet = false } = {}) {
   // 4단계: 노드 목록 정리 + 군집 계산
   const nodes = [
     ...notes.map((n) => ({
-      id: n.id, title: n.title, type: n.type, folder: n.folder, topics: n.topics, tags: n.tags,
+      id: n.id, title: n.title, type: n.type, folder: n.folder, docType: n.docType, cats: n.cats, props: n.props, topics: n.topics, tags: n.tags,
       date: n.date, source: n.source, url: n.url, summary: n.summary, file: n.file, search: n.searchText,
     })),
     ...topicNodes.values(),
@@ -267,6 +297,8 @@ export function build({ quiet = false } = {}) {
       builtAt: new Date().toISOString(),
       noteCount: notes.length,
       features: cfg.features || {},
+      typeLabels: cfg.typeLabels || {},
+      categories: catDefs.map((d) => ({ key: d.key, label: d.label })),
     },
     nodes,
     links,

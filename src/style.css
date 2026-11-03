@@ -438,3 +438,5 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .h-to { color: var(--ink); background: #eef3d4; border-radius: 4px; padding: 0 4px; }
 .last-chg { margin-top: 10px; font-size: 12.5px; color: var(--ink-2); background: #eef3d4; border-radius: 8px; padding: 8px 12px; }
 .last-chg span { font-weight: 600; color: var(--ink); margin-right: 4px; }
+.fresh { display: inline-block; margin-top: 8px; font-size: 11px; color: var(--ink-2); background: var(--paper-2); border-radius: 999px; padding: 2px 9px; }
+.fresh.stale { color: #8a4a12; background: #f9eeda; }

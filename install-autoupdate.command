@@ -10,12 +10,7 @@ if [ -z "$NODE" ]; then echo "[!] Node.js 가 없어요. https://nodejs.org 에�
 
 echo "── 세컨브레인 자동 업로드 설정 ──"
 # 1) 로그인 정보 (사람 없이 올리려면 필요, .env 는 Git 에 안 올라가요)
-if ! grep -q '^SB_EMAIL=..*' .env 2>/dev/null || ! grep -q '^SB_PASSWORD=..*' .env 2>/dev/null; then
-  read -r -p "세컨브레인 계정 이메일: " E
-  read -r -s -p "비밀번호: " P; echo
-  { grep -v '^SB_EMAIL=\|^SB_PASSWORD=' .env 2>/dev/null; echo "SB_EMAIL=$E"; echo "SB_PASSWORD=$P"; } > .env.tmp && mv .env.tmp .env
-  chmod 600 .env
-fi
+"$NODE" scripts/setup-env.mjs || { read -r; exit 1; }
 # 2) Mac 의 볼트 경로 (config.local.json 에 저장, Git 에 안 올라가요)
 SRC="$("$NODE" -e "const fs=require('fs');let c=require('./config.json');try{Object.assign(c,require('./config.local.json'))}catch{}console.log(c.sourcePath||'')")"
 if [ ! -d "$SRC" ]; then

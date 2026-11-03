@@ -105,7 +105,18 @@ async function load() {
     $('stat-nodes').textContent = (G.nodes.length - auxIds.size).toLocaleString();
     $('stat-links').textContent = G.links.filter((l) => !auxIds.has(l.source) && !auxIds.has(l.target)).length.toLocaleString();
   }
-  $('built-at').textContent = `마지막 갱신 ${new Date(G.meta.builtAt).toLocaleString('ko-KR')}`;
+  // 데이터 신선도: 마지막 업로드가 언제인지, 하루가 넘으면 경고
+  {
+    const ageH = (Date.now() - Date.parse(G.meta.builtAt)) / 36e5;
+    const ago = ageH < 1 ? '1시간 이내' : ageH < 24 ? `${Math.floor(ageH)}시간 전` : `${Math.floor(ageH / 24)}일 전`;
+    const stale = ageH > 24;
+    $('built-at').textContent = `마지막 업로드 ${new Date(G.meta.builtAt).toLocaleString('ko-KR')}`;
+    const badge = document.createElement('span');
+    badge.className = 'fresh' + (stale ? ' stale' : '');
+    badge.textContent = stale ? `업로드 ${ago} · 최신이 아닐 수 있어요` : `업로드 ${ago}`;
+    badge.title = `마지막 업로드 ${new Date(G.meta.builtAt).toLocaleString('ko-KR')}`;
+    document.querySelector('.sb-head .stats')?.after(badge);
+  }
   F = { ...F, ...(G.meta.features || {}) };
   document.querySelectorAll('[data-feature]').forEach((el) => { el.hidden = !F[el.dataset.feature]; });
   if (!F.categories) state.lens = 'all';

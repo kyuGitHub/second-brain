@@ -27,6 +27,11 @@ const EDGES = {
   'triggered-by': { ko: '계기',     color: '#ffd166', out: '계기가 된 노트',       in: '이 노트가 계기가 된 노트' },
   requires:       { ko: '전제',     color: '#b98cff', out: '전제 조건',            in: '이 노트를 전제로 하는 노트' },
   composes:       { ko: '구성',     color: '#9ad1ff', out: '구성 요소로 속한 곳',  in: '구성 요소' },
+  parent:         { ko: '상위 요구사항', color: '#f3a712', out: '하위 요구사항',        in: '상위 요구사항' },
+  index:          { ko: '색인 포함', color: '#d6f24a', out: '색인에 담긴 노트',     in: '이 노트를 담은 색인' },
+  meeting:        { ko: '회의에서 다룸', color: '#ffa057', out: '이 회의에서 다룬 노트', in: '이 노트를 다룬 회의' },
+  evidence:       { ko: '근거 회의', color: '#ff8a5b', out: '근거가 된 회의',       in: '이 회의를 근거로 한 노트' },
+  related:        { ko: '관련 요구사항', color: '#9a988f', out: '관련 요구사항',     in: '관련 요구사항(역방향)', dash: [1, 2] },
   mentions:       { ko: '언급',     color: '#9a988f', out: '본문에서 언급한 노트', in: '이 노트를 언급한 곳 (백링크)', dash: [1, 2] },
   topic:          { ko: '주제',     color: '#ff7aa8', out: '주제',                in: '이 주제의 노트', dash: [3, 3] },
   thesis:         { ko: '핵심 주장', color: '#d6f24a', out: '연결된 핵심 주장',    in: '이 주장에 속한 노트', dash: [3, 3] },
@@ -125,6 +130,10 @@ async function load() {
   // 핵심 주장에 직접 닿는 노드
   for (const n of G.nodes) if (n.type === 'thesis') { thesisZone.add(n.id); nbr.get(n.id).forEach((x) => byId.get(x)?.type !== 'topic' && thesisZone.add(x)); }
 
+  // 큰 그래프: 저장된 보기가 없으면 2D 로 시작하고, 빽빽한 연결(관련 요구사항·언급)은 기본 숨김
+  if (!saved.view && G.nodes.length > 800) state.view = 'free';
+  if (G.links.length > 3000 && !saved.edgesTouched) ['related', 'mentions'].forEach((k) => state.hiddenEdges.add(k));
+
   // 색인이 많으면 연결이 많은 상위 25개만 항상 이름을 보여준다 (나머지는 확대하면 보임)
   const hubs = G.nodes.filter((n) => n.type === 'thesis').sort((a, b) => b.degree - a.degree);
   labelAlways = new Set((hubs.length > 40 ? hubs.slice(0, 25) : hubs).map((n) => n.id));
@@ -133,6 +142,7 @@ async function load() {
   setView(state.view, { initial: true });
   window.addEventListener('hashchange', onHash);
   onHash();
+  if (!location.hash && F.reader && !isMobile()) openOverview();
 }
 
 function countBy(arr) {
@@ -156,7 +166,9 @@ function inRange(n) {
 }
 const nodeVisible = (n) => !state.hiddenTypes.has(n.type) && (!state.catSet || state.catSet.has(n.id)) && (!filterOn() || matchesFilter(n)) && inRange(n);
 const linkVisible = (l) => {
-  if (state.hiddenEdges.has(l.type)) return false;
+  // 숨긴 유형이라도 지금 고른(또는 마우스를 올린) 노드에 닿는 연결은 보여준다
+  const focus = state.hover || state.selected;
+  if (state.hiddenEdges.has(l.type) && !(focus && (idOf(l.source) === focus || idOf(l.target) === focus))) return false;
   const s = byId.get(idOf(l.source)), t = byId.get(idOf(l.target));
   return s && t && nodeVisible(s) && nodeVisible(t);
 };
@@ -478,6 +490,7 @@ function buildSidebar(topicCount) {
   $('edge-legend').innerHTML = Object.entries(EDGES).filter(([k]) => edgeCount.has(k)).map(([k, t]) =>
     `<li data-k="${k}"><span class="ln${t.dash ? (k === 'mentions' ? ' dot2' : ' dash') : ''}" style="border-color:${darken(t.color)}"></span><span class="name">${t.ko}<span class="en">${k}</span></span><span class="n">${edgeCount.get(k)}</span></li>`).join('');
   $('edge-legend').onclick = (e) => toggleLegend(e, state.hiddenEdges);
+  $('edge-legend').querySelectorAll('li').forEach((li) => li.classList.toggle('off', state.hiddenEdges.has(li.dataset.k)));
 
   // 보기 / 색상 / 간격
   seg('view-seg', Object.fromEntries(Object.entries(VIEWS).map(([k, v]) => [k, v.ko])), state.view, (k) => setView(k));
@@ -531,6 +544,7 @@ function onFilterChange() {
 }
 function toggleLegend(e, set) {
   const li = e.target.closest('li'); if (!li) return;
+  if (set === state.hiddenEdges) { saved.edgesTouched = true; }
   const k = li.dataset.k;
   set.has(k) ? set.delete(k) : set.add(k);
   li.classList.toggle('off', set.has(k));
@@ -662,20 +676,30 @@ function clearCat() {
 
 /* ───────────── 문서 목록 (카테고리별로 글 보기) ───────────── */
 let listLimit = 200, listSort = 'name', listQuery = '';
+let listCtx = null; // { eyebrow, title, ids }
 function openList({ back = false } = {}) {
   if (!state.cat || !F.reader) return;
-  if (!back && state.panel && state.panel.kind !== 'list') state.stack.push(state.panel);
-  state.panel = { kind: 'list', scheme: state.cat.scheme, path: state.cat.path };
+  const def = catDefs().find((d) => d.key === state.cat.scheme);
+  listCtx = { eyebrow: `카테고리 · ${def?.label || ''}`, titleHtml: state.cat.path.map((p) => esc(catLabel(p))).join(' <span class="crumb">›</span> '), ids: [...(findCat(state.cat.path)?.ids || [])] };
+  showListPanel({ kind: 'list', scheme: state.cat.scheme, path: state.cat.path }, back);
+}
+function openCustomList(eyebrow, title, ids, { back = false } = {}) {
+  listCtx = { eyebrow, titleHtml: esc(title), ids };
+  showListPanel({ kind: 'custom', eyebrow, title, ids }, back);
+}
+function showListPanel(entry, back) {
+  if (!back && state.panel && !(state.panel.kind === entry.kind && JSON.stringify(state.panel) === JSON.stringify(entry))) state.stack.push(state.panel);
+  state.panel = entry;
   state.selected = null;
   $('node-card').hidden = true;
   if (location.hash) history.replaceState(null, '', location.pathname + location.search);
   $('panel').hidden = false;
   $('panel-back').disabled = !state.stack.length;
   listQuery = '';
-  const def = catDefs().find((d) => d.key === state.cat.scheme);
+  listLimit = 200;
   $('panel-body').innerHTML = `
-    <div class="p-type">카테고리 · ${esc(def?.label || '')}</div>
-    <h2 class="p-title">${state.cat.path.map((p) => esc(catLabel(p))).join(' <span class="crumb">›</span> ')}</h2>
+    <div class="p-type">${esc(listCtx.eyebrow)}</div>
+    <h2 class="p-title">${listCtx.titleHtml}</h2>
     <div class="list-tools">
       <input type="search" id="list-q" placeholder="이 목록에서 찾기" autocomplete="off" />
       <div class="seg list-sort" role="group" aria-label="정렬">
@@ -689,9 +713,8 @@ function openList({ back = false } = {}) {
   refresh();
 }
 function renderList() {
-  const box = $('list-box'); if (!box || !state.cat) return;
-  const node = findCat(state.cat.path);
-  let items = [...(node?.ids || [])].map((id) => byId.get(id)).filter(Boolean);
+  const box = $('list-box'); if (!box || !listCtx) return;
+  let items = listCtx.ids.map((id) => byId.get(id)).filter(Boolean);
   if (listQuery) items = items.filter((n) => (n.title + ' ' + Object.values(n.props || {}).join(' ')).toLowerCase().includes(listQuery));
   const cmp = {
     name: (a, b) => a.title.localeCompare(b.title, 'ko', { numeric: true }),
@@ -720,6 +743,94 @@ function propsHtml(n) {
   if (!entries.length) return '';
   return `<dl class="props">${entries.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`;
 }
+
+/* ───────────── 개요 (첫 화면) ───────────── */
+function openOverview({ back = false } = {}) {
+  if (!F.reader || !G) return;
+  if (!back && state.panel && state.panel.kind !== 'overview') state.stack.push(state.panel);
+  state.panel = { kind: 'overview' };
+  state.selected = null;
+  $('node-card').hidden = true;
+  $('panel').hidden = false;
+  $('panel-back').disabled = !state.stack.length;
+
+  const notes = G.nodes.filter((n) => n.type !== 'topic');
+  const reqs = notes.filter((n) => n.props?.['요구사항ID']);
+  const linkTypesOf = new Map(notes.map((n) => [n.id, new Set()]));
+  for (const l of G.links) {
+    if (l.type === 'topic') continue;
+    linkTypesOf.get(l.source)?.add(l.type + ':out');
+    linkTypesOf.get(l.target)?.add(l.type + ':in');
+  }
+  const hasMeeting = (n) => { const t = linkTypesOf.get(n.id); return t.has('evidence:out') || t.has('meeting:in'); };
+  const reqNoMeeting = reqs.filter((n) => !hasMeeting(n));
+  const nonMeeting = notes.filter((n) => n.type !== 'episodic');
+  const covered = nonMeeting.filter(hasMeeting).length;
+  const orphans = notes.filter((n) => !linkTypesOf.get(n.id).size);
+  const brokenNotes = notes.filter((n) => n.broken > 0);
+  const brokenSum = brokenNotes.reduce((a, n) => a + n.broken, 0);
+  const noDomain = notes.filter((n) => (n.cats?.domain || []).some((p) => p[0] === '(미분류)'));
+  const cancelled = reqs.filter((n) => n.props?.['처리결과'] === '취소선');
+  const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+
+  const bizCount = countBy(reqs.flatMap((n) => (n.cats?.biz || []).map((p) => p[0])));
+  const maxBiz = Math.max(1, ...bizCount.values());
+  const typeCount = countBy(notes.map((n) => n.docType || '(없음)'));
+  const recent = notes.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || a.title.localeCompare(b.title, 'ko')).slice(0, 8);
+
+  window.__ov = { reqNoMeeting, orphans, brokenNotes, noDomain, cancelled }; // 점검 목록 열기용
+  const tile = (n, label, sub = '') => `<div class="ov-tile"><div class="ov-n">${n.toLocaleString()}</div><div class="ov-l">${label}</div>${sub ? `<div class="ov-s">${sub}</div>` : ''}</div>`;
+  const check = (key, label, n, total, note) => `<button type="button" class="ov-check" data-ov="${key}" ${n ? '' : 'disabled'}>
+      <span class="ov-check-l">${label}<span class="ov-check-s">${note}</span></span>
+      <span class="ov-check-n${n ? ' warn' : ''}">${n.toLocaleString()}${total ? `<small> / ${total.toLocaleString()}</small>` : ''}</span></button>`;
+
+  $('panel-body').innerHTML = `
+    <div class="p-type">개요 · 마지막 갱신 ${new Date(G.meta.builtAt).toLocaleString('ko-KR')}</div>
+    <h2 class="p-title">${esc(G.meta.subtitle || G.meta.title)}</h2>
+    <div class="ov-tiles">
+      ${tile(notes.length, '전체 문서')}
+      ${tile(reqs.length, '요구사항', `취소 ${cancelled.length}`)}
+      ${tile(typeCount.get('회의록') || 0, '회의록', `인터뷰 ${(typeCount.get('인터뷰') || 0) + (typeCount.get('개발사인터뷰') || 0)}`)}
+      ${tile(typeCount.get('MOC') || 0, '색인(MOC)')}
+    </div>
+
+    <h3 class="ov-h">업무 영역별 요구사항</h3>
+    <div class="ov-bars">${[...bizCount.entries()].map(([k, v]) => `
+      <button type="button" class="ov-bar" data-biz="${esc(k)}"><span class="ov-bar-l">${esc(k)}</span>
+        <span class="ov-bar-track"><span style="width:${pct(v, maxBiz)}%"></span></span><span class="ov-bar-n">${v}</span></button>`).join('')}
+    </div>
+
+    <h3 class="ov-h">추적성</h3>
+    <div class="ov-meter"><div class="ov-meter-bar"><span style="width:${pct(covered, nonMeeting.length)}%"></span></div>
+      <p>회의·인터뷰와 이어진 문서 <b>${pct(covered, nonMeeting.length)}%</b> (${covered.toLocaleString()} / ${nonMeeting.length.toLocaleString()})</p></div>
+
+    <h3 class="ov-h">데이터 점검 <span class="ov-h-s">눌러서 목록 보기</span></h3>
+    <div class="ov-checks">
+      ${check('reqNoMeeting', '회의 근거가 없는 요구사항', reqNoMeeting.length, reqs.length, '회의록·인터뷰와 연결되지 않음')}
+      ${check('noDomain', '대분류가 비어 있는 문서', noDomain.length, notes.length, '카테고리에서 (미분류)로 보임')}
+      ${check('brokenNotes', '깨진 링크가 있는 문서', brokenNotes.length, 0, `없는 노트를 가리키는 링크 ${brokenSum.toLocaleString()}개`)}
+      ${check('orphans', '아무 연결도 없는 문서', orphans.length, 0, '그래프에서 혼자 떨어져 있음')}
+      ${check('cancelled', '취소된 요구사항', cancelled.length, 0, '처리결과: 취소선')}
+    </div>
+
+    <h3 class="ov-h">최근 수정</h3>
+    <div class="ov-recent">${recent.map((n) => `<button type="button" class="li-item" data-id="${n.id}"><span class="dot" style="background:${TYPES[n.type]?.light}"></span>
+      <span class="li-main"><span class="li-t">${esc(n.title)}</span><span class="li-s">${[n.docType, n.date].filter(Boolean).map(esc).join(' · ')}</span></span></button>`).join('')}</div>`;
+  $('panel-body').scrollTop = 0;
+  refresh();
+}
+
+$('panel-body').addEventListener('click', (e) => {
+  const ov = e.target.closest('[data-ov]');
+  if (ov) {
+    const labels = { reqNoMeeting: '회의 근거가 없는 요구사항', noDomain: '대분류가 비어 있는 문서', brokenNotes: '깨진 링크가 있는 문서', orphans: '아무 연결도 없는 문서', cancelled: '취소된 요구사항' };
+    const list = window.__ov?.[ov.dataset.ov] || [];
+    openCustomList('데이터 점검', labels[ov.dataset.ov], list.map((n) => n.id));
+    return;
+  }
+  const biz = e.target.closest('[data-biz]');
+  if (biz && catDefs().some((d) => d.key === 'biz')) { if (applyCat('biz', [biz.dataset.biz])) openList(); }
+});
 
 /* ───────────── 툴팁 ───────────── */
 function tipHtml(n) {
@@ -857,10 +968,18 @@ $('panel-body').addEventListener('click', (e) => {
   if (srt) { listSort = srt.dataset.sort; renderList(); }
 });
 $('panel-close').onclick = () => closePanel();
+$('panel-wide').onclick = () => {
+  const wide = $('panel').classList.toggle('wide');
+  $('panel-wide').textContent = wide ? '좁게' : '넓게';
+  $('panel-wide').setAttribute('aria-pressed', String(wide));
+};
+$('open-overview').onclick = () => { openOverview(); closeSidebarMobile(); };
 $('panel-back').onclick = () => {
   const prev = state.stack.pop();
   if (!prev) return;
   if (prev.kind === 'list') { applyCat(prev.scheme, prev.path); openList({ back: true }); }
+  else if (prev.kind === 'custom') openCustomList(prev.eyebrow, prev.title, prev.ids, { back: true });
+  else if (prev.kind === 'overview') openOverview({ back: true });
   else openNote(prev.id, { back: true });
 };
 

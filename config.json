@@ -89,11 +89,6 @@
       ]
     },
     {
-      "key": "dept",
-      "label": "관련부서",
-      "field": "관련부서"
-    },
-    {
       "key": "tag",
       "label": "태그",
       "field": "태그",
@@ -125,5 +120,28 @@
     "categories": true,
     "search": true,
     "reader": true
-  }
+  },
+  "linkRules": [
+    {
+      "sourceField": "업무",
+      "equals": "상위요구사항",
+      "as": "parent"
+    },
+    {
+      "sourceType": "thesis",
+      "as": "index"
+    },
+    {
+      "sourceType": "episodic",
+      "as": "meeting"
+    },
+    {
+      "targetType": "episodic",
+      "as": "evidence"
+    },
+    {
+      "bothHave": "요구사항ID",
+      "as": "related"
+    }
+  ]
 }

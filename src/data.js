@@ -20,12 +20,14 @@ export async function loadGraph() {
   return remoteJson('graph.json');
 }
 
-let notesBundle = null;
+// 본문은 16묶음(notes/0.json ~ notes/f.json)으로 나뉘어 있어서 필요한 묶음만 받는다
+const chunks = new Map();
 export async function loadNoteHtml(file) {
   if (LOCAL) {
     const res = await fetch('data/notes/' + file);
     return (await res.json()).html;
   }
-  notesBundle ??= remoteJson('notes.json');
-  return (await notesBundle)[file] || '';
+  const k = file[0];
+  if (!chunks.has(k)) chunks.set(k, remoteJson(`notes/${k}.json`).catch((e) => { chunks.delete(k); throw e; }));
+  return (await chunks.get(k))[file] || '';
 }

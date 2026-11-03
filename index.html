@@ -17,6 +17,7 @@
         <h1 id="site-title">Second Brain</h1>
         <p id="site-subtitle" class="subtitle"></p>
         <p class="stats"><span id="stat-nodes">0</span> 노드 · <span id="stat-links">0</span> 연결</p>
+        <button type="button" class="ghost-btn overview-btn" id="open-overview" data-feature="reader" hidden>개요 보기</button>
       </header>
 
       <section class="sb-sec" data-feature="categories" hidden>
@@ -87,7 +88,10 @@
     <article id="panel" class="panel" hidden aria-live="polite">
       <div class="panel-bar">
         <button class="icon-btn" id="panel-back" title="뒤로">←</button>
-        <button class="icon-btn" id="panel-close" title="닫기">✕</button>
+        <span class="panel-bar-r">
+          <button type="button" class="ghost-btn wide-btn" id="panel-wide" aria-pressed="false">넓게</button>
+          <button class="icon-btn" id="panel-close" title="닫기">✕</button>
+        </span>
       </div>
       <div id="panel-body" class="panel-body"></div>
     </article>

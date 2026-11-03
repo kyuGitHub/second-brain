@@ -40,11 +40,13 @@ const password = env.SB_PASSWORD || await ask('비밀번호: ', true);
 // 1) 그래프 만들기
 const graph = build();
 const notesDir = path.join(ROOT, 'public', 'data', 'notes');
-const notes = {};
+// 본문은 파일 이름 첫 글자(0~f)로 16묶음으로 나눠 올린다 → 글을 처음 열 때 받는 양이 1/16
+const chunks = {};
 for (const n of graph.nodes) {
   if (!n.file) continue;
   const p = path.join(notesDir, n.file);
-  if (fs.existsSync(p)) notes[n.file] = JSON.parse(fs.readFileSync(p, 'utf8')).html;
+  if (!fs.existsSync(p)) continue;
+  (chunks[n.file[0]] ??= {})[n.file] = JSON.parse(fs.readFileSync(p, 'utf8')).html;
 }
 
 // 2) 로그인
@@ -69,6 +71,7 @@ const put = async (name, obj) => {
   console.log(`  ↑ ${name} (${mb} MB)`);
 };
 await put('graph.json', graph);
-await put('notes.json', notes);
+for (const [k, obj] of Object.entries(chunks)) await put(`notes/${k}.json`, obj);
+await sb.storage.from(BUCKET).remove(['notes.json']); // 예전 한 덩어리 파일 정리
 await sb.auth.signOut();
 console.log(`✔ 업로드 완료: 노트 ${graph.meta.noteCount}개. 웹사이트를 새로 고치면 바로 보여요.`);

@@ -251,7 +251,7 @@ export function build({ quiet = false } = {}) {
       const [target, alias] = inner.split('|');
       const label = (alias || target.split('#')[0] || target).trim();
       const t = resolve(target);
-      if (!t) return `<span class="wl broken">${escapeHtml(label)}</span>`;
+      if (!t) { n.broken = (n.broken || 0) + 1; return `<span class="wl broken">${escapeHtml(label)}</span>`; }
       if (!typedPairs.has(`${n.id}|${t.id}`)) addLink(n.id, t.id, 'mentions');
       return `<a class="wl" data-id="${t.id}">${escapeHtml(label)}</a>`;
     });
@@ -277,11 +277,28 @@ export function build({ quiet = false } = {}) {
     fs.writeFileSync(path.join(OUT, 'notes', n.file), JSON.stringify({ html }));
   }
 
+  // 3.5단계: 본문 언급(mentions)에 의미 붙이기 — 출발 노트의 종류로 연결 유형을 정한다
+  // 예: 색인(MOC) → 노트 = 색인 포함, 회의록 → 노트 = 회의에서 다룸, 상위요구사항 → 노트 = 상위 요구사항
+  const noteById = new Map(notes.map((n) => [n.id, n]));
+  for (const l of links) {
+    if (l.type !== 'mentions') continue;
+    const src = noteById.get(l.source);
+    if (!src) continue;
+    const tgt = noteById.get(l.target);
+    const has = (n, f) => n && asList(n.fm[f]).length > 0;
+    const rule = (cfg.linkRules || []).find((r) =>
+      (!r.sourceType || r.sourceType === src.type) &&
+      (!r.targetType || r.targetType === tgt?.type) &&
+      (!r.bothHave || (has(src, r.bothHave) && has(tgt, r.bothHave))) &&
+      (!r.sourceField || asList(src.fm[r.sourceField]).map(String).includes(String(r.equals))));
+    if (rule) l.type = rule.as;
+  }
+
   // 4단계: 노드 목록 정리 + 군집 계산
   const nodes = [
     ...notes.map((n) => ({
       id: n.id, title: n.title, type: n.type, folder: n.folder, docType: n.docType, cats: n.cats, props: n.props, topics: n.topics, tags: n.tags,
-      date: n.date, source: n.source, url: n.url, summary: n.summary, file: n.file, search: n.searchText,
+      date: n.date, source: n.source, url: n.url, summary: n.summary, file: n.file, search: n.searchText, broken: n.broken || 0,
     })),
     ...topicNodes.values(),
   ];

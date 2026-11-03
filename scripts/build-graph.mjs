@@ -16,7 +16,9 @@ const TYPE_ALIASES = {
   episodic: 'episodic', 경험: 'episodic', 사례: 'episodic', 회의: 'episodic',
   procedural: 'procedural', 방법: 'procedural', 플레이북: 'procedural', 체크리스트: 'procedural',
   reflective: 'reflective', 회고: 'reflective', 생각: 'reflective',
-  thesis: 'thesis', 핵심주장: 'thesis', 원칙: 'thesis',
+  thesis: 'thesis', 핵심주장: 'thesis',
+  근거회의: 'evidence', 근거: 'evidence', 회의록: 'evidence', // 요구사항 → 근거가 된 회의
+  상위요구사항: 'parent', 원문: 'refines', 원칙: 'thesis',
   entity: 'entity', 개체: 'entity', 인물: 'entity', 도구: 'entity', 서비스: 'entity',
 };
 
@@ -31,6 +33,8 @@ const RELATION_KEYS = {
   composes: 'composes', 구성: 'composes',
   triggered_by: 'triggered-by', 'triggered-by': 'triggered-by', 계기: 'triggered-by',
   thesis: 'thesis', 핵심주장: 'thesis',
+  근거회의: 'evidence', 근거: 'evidence', 회의록: 'evidence', // 요구사항 → 근거가 된 회의
+  상위요구사항: 'parent', 원문: 'refines',
 };
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif']);

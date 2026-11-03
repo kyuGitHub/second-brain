@@ -923,6 +923,8 @@ async function openNote(id, { fromHash = false, back = false } = {}) {
     ${n.props?.['처리결과'] === '취소선' ? '<div class="badge-cancel">취소된 요구사항</div>' : ''}
     ${chips ? `<div class="p-chips">${chips}</div>` : ''}
     ${propsHtml(n)}
+    ${n.props?.['요구사항ID'] && !G.links.some((l) => (l.source === n.id && l.type === 'evidence') || (l.target === n.id && l.type === 'meeting'))
+      ? '<div class="hint-box">근거 회의가 연결되지 않은 요구사항이에요. 옵시디언에서 <code>근거회의: "[[회의록 이름]]"</code> 을 채우면 다음 업로드부터 연결돼요.</div>' : ''}
     <div class="md" id="md">${n.type === 'topic' ? '' : '<p style="color:#8b8a82">불러오는 중…</p>'}</div>
     <div class="rel">${relatedHtml(n)}</div>`;
   body.scrollTop = 0;

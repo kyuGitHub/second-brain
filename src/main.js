@@ -10,13 +10,14 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 
 /* ───────────── 설정값 ───────────── */
 const TYPES = {
-  thesis:     { ko: '핵심 주장', en: 'Thesis',     dark: '#d6f24a', light: '#6f8f00' },
-  semantic:   { ko: '개념',     en: 'Semantic',   dark: '#f1efe8', light: '#3d3d38' },
-  procedural: { ko: '방법',     en: 'Procedural', dark: '#6aa8ff', light: '#2f6fd6' },
-  episodic:   { ko: '경험',     en: 'Episodic',   dark: '#ffa057', light: '#cf6410' },
-  reflective: { ko: '회고',     en: 'Reflective', dark: '#b98cff', light: '#7a4fd0' },
-  entity:     { ko: '개체',     en: 'Entity',     dark: '#5fd4c4', light: '#13877a' },
-  topic:      { ko: '주제',     en: 'Topic',      dark: '#ff7aa8', light: '#c43c6e' },
+  // dark = 어두운 화면(브레인·자유)의 별빛 색. 참고 사이트처럼 크림색이 바탕, 나머지는 포인트 색
+  thesis:     { ko: '핵심 주장', en: 'Thesis',     dark: '#c9f23e', light: '#6f8f00' },
+  semantic:   { ko: '개념',     en: 'Semantic',   dark: '#fff0d4', light: '#3d3d38' },
+  procedural: { ko: '방법',     en: 'Procedural', dark: '#5aa9ff', light: '#2f6fd6' },
+  episodic:   { ko: '경험',     en: 'Episodic',   dark: '#ff9a3c', light: '#cf6410' },
+  reflective: { ko: '회고',     en: 'Reflective', dark: '#b07cff', light: '#7a4fd0' },
+  entity:     { ko: '개체',     en: 'Entity',     dark: '#7fe3ff', light: '#13877a' },
+  topic:      { ko: '주제',     en: 'Topic',      dark: '#b9dcff', light: '#c43c6e' },
 };
 const EDGES = {
   supports:       { ko: '뒷받침',   color: '#d6f24a', out: '뒷받침하는 대상',      in: '이 노트를 뒷받침하는 근거' },
@@ -149,7 +150,6 @@ async function load() {
   setView(state.view, { initial: true });
   window.addEventListener('hashchange', onHash);
   onHash();
-  if (!location.hash && F.reader && !isMobile() && !VIEWS[state.view].table) openOverview();
 }
 
 function countBy(arr) {
@@ -254,6 +254,7 @@ function drawNode(n, ctx, scale) {
   if (dark && a > 0.5 && (G.nodes.length < 500 || labelAlways.has(n.id))) { ctx.shadowColor = c; ctx.shadowBlur = n.type === 'thesis' ? 22 : 9; }
   ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 2 * Math.PI); ctx.fillStyle = c; ctx.fill();
   ctx.shadowBlur = 0;
+  if (dark && r > 2.5 && a > 0.5) { ctx.beginPath(); ctx.arc(n.x, n.y, r * 0.42, 0, 2 * Math.PI); ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill(); }
   if (n.type === 'topic' && !dark) { ctx.lineWidth = 1.2 / scale; ctx.strokeStyle = '#fff'; ctx.stroke(); }
   if (state.selected === n.id) { ctx.lineWidth = 2 / scale; ctx.strokeStyle = dark ? '#fff' : '#1b1b18'; ctx.beginPath(); ctx.arc(n.x, n.y, r + 3 / scale + 1, 0, 2 * Math.PI); ctx.stroke(); }
 
@@ -371,8 +372,11 @@ function hash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s
 
 function applySpacing(g) {
   const s = SPACING[state.spacing];
-  g.d3Force('charge')?.strength(s.charge);
-  g.d3Force('link')?.distance((l) => (l.type === 'topic' || l.type === 'thesis' ? s.dist * 1.6 : s.dist)).strength((l) => (l.type === 'topic' ? 0.04 : l.type === 'mentions' ? 0.12 : 0.3));
+  const m = g === g3 ? 3.4 : 1; // 3D 는 더 넓게 퍼뜨려야 별끼리 겹쳐 하얗게 뭉치지 않는다
+  g.d3Force('charge')?.strength(s.charge * m);
+  const is3 = g === g3;
+  g.d3Force('link')?.distance((l) => (l.type === 'topic' || l.type === 'thesis' ? s.dist * (is3 ? 4.5 : 1.6) : l.type === 'parent' && is3 ? s.dist * 4 : s.dist * (is3 ? 2 : 1)))
+    .strength((l) => (state.hiddenEdges.has(l.type) ? 0.005 : l.type === 'topic' ? 0.04 : l.type === 'parent' && is3 ? 0.05 : l.type === 'mentions' ? 0.12 : 0.3)); // 숨긴 연결은 거의 당기지 않고, 3D 에서는 하위 요구사항 묶음을 넓게 // 숨긴 연결은 배치에서도 거의 당기지 않게
 }
 
 /* ───────────── 3D 그래프 (브레인) ───────────── */
@@ -386,56 +390,111 @@ function ensure3d() {
     .showNavInfo(false)
     .nodeId('id')
     .nodeRelSize(1.6)
-    .nodeVal((n) => nodeRadius(n) ** 2 / 3)
-    .nodeResolution(10)
-    .nodeOpacity(0.95)
+    .nodeVal((n) => 2 + Math.min(12, n.degree / 6)) // 마우스 판정용 (보이지 않는 구의 크기)
     .nodeVisibility(nodeVisible)
     .linkVisibility(linkVisible)
-    .linkOpacity(G.nodes.length > 1000 ? 0.18 : 0.35)
     .linkWidth(0)
-    .nodeLabel((n) => tipHtml(n))
+    .nodeLabel((n) => tipHtml(n, true))
     .onNodeHover((n) => { state.hover = n ? n.id : null; el.style.cursor = n ? 'pointer' : ''; refresh3d(); })
     .onNodeClick((n) => openNote(n.id))
     .onBackgroundClick(() => { if (state.selected) closePanel(); })
-    .nodeThreeObjectExtend(true)
+    .nodeThreeObjectExtend(false)
     .cooldownTicks(220)
-    .onEngineStop(() => { if (pendingFit) { pendingFit = false; g3.zoomToFit(700, 40, nodeVisible); } });
+    .onEngineStop(() => { if (pendingFit) { pendingFit = false; fillView3d(); } });
   style3d();
   applySpacing(g3);
   try {
-    // 노드가 많을수록 빛번짐을 줄여서 하얗게 뭉개지지 않게 한다
+    // 별(스프라이트)이 스스로 빛나므로 빛번짐은 은은하게
     const big = G.nodes.length;
-    const strength = big > 1000 ? 0.45 : big > 400 ? 0.7 : 1.15;
-    bloom = new UnrealBloomPass(new THREE.Vector2(el.clientWidth, el.clientHeight), strength, 0.45, big > 400 ? 0.2 : 0.08);
+    bloom = new UnrealBloomPass(new THREE.Vector2(el.clientWidth, el.clientHeight), big > 800 ? 0.32 : 0.6, 0.3, 0.55); // 문턱을 높여 옅은 선은 번지지 않게
     g3.postProcessingComposer().addPass(bloom);
   } catch { /* 빛번짐 효과 없이 표시 */ }
   const ctl = g3.controls();
   if (ctl) {
-    ctl.autoRotate = true; ctl.autoRotateSpeed = 0.35;
+    ctl.autoRotate = true; ctl.autoRotateSpeed = 0.3;
     el.addEventListener('pointerdown', () => { ctl.autoRotate = false; }, { once: true });
   }
   return g3;
 }
-function color3(n) {
-  const a = nodeAlpha(n);
-  return a < 0.5 ? rgba(nodeColor(n), 0.12) : nodeColor(n);
+
+// 참고 사이트처럼 그물망이 화면을 가득 채우도록, 전체가 들어오게 맞춘 뒤 한 번 더 다가간다
+function fillView3d() {
+  g3.zoomToFit(600, 10, nodeVisible);
+  setTimeout(() => {
+    const bb = g3.getGraphBbox(nodeVisible); if (!bb) return;
+    const c = { x: (bb.x[0] + bb.x[1]) / 2, y: (bb.y[0] + bb.y[1]) / 2, z: (bb.z[0] + bb.z[1]) / 2 };
+    const p = g3.camera().position, k = 0.78;
+    g3.cameraPosition({ x: c.x + (p.x - c.x) * k, y: c.y + (p.y - c.y) * k, z: c.z + (p.z - c.z) * k }, c, 1400);
+  }, 650);
 }
+
+// 별 하나 = 흰 중심 → 색 → 투명으로 번지는 빛 (색마다 한 장만 만들어 재사용)
+const glowTex = new Map();
+function glowTexture(hex) {
+  if (glowTex.has(hex)) return glowTex.get(hex);
+  const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+  const x = cv.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.16, rgba(hex, 1));
+  g.addColorStop(0.38, rgba(hex, 0.32));
+  g.addColorStop(1, rgba(hex, 0));
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+  glowTex.set(hex, t); return t;
+}
+// 별 크기 = 화면 높이 대비 비율 (거리와 상관없이 일정: 보통 약 9px, 허브 약 20px)
+const starSize = (n) => (n.type === 'topic' ? 0.022 : n.type === 'thesis' ? 0.02 : 0.0075 + Math.min(0.009, Math.sqrt(n.degree) * 0.001));
+function starAlpha(n) { return nodeAlpha(n) < 0.5 ? 0.1 : n.type === 'topic' || n.type === 'thesis' ? 1 : 0.9; }
+
+// 연결선: 출발 노드의 색으로 아주 옅게 (색·투명도마다 재질 하나)
+const lineMats = new Map();
+function lineMat(hex, op) {
+  const key = hex + op;
+  if (!lineMats.has(key)) lineMats.set(key, new THREE.LineBasicMaterial({ color: new THREE.Color(hex), transparent: true, opacity: op, depthWrite: false })); // 더하기 혼합이면 수백 개 선이 모이는 허브가 하얗게 타서 일반 혼합
+  return lineMats.get(key);
+}
+function link3dMat(l) {
+  const s = byId.get(idOf(l.source)), t = byId.get(idOf(l.target));
+  const focus = state.hover || state.selected;
+  const hex = nodeColor(s?.type === 'topic' && t ? t : s || t);
+  if (focus) return (idOf(l.source) === focus || idOf(l.target) === focus) ? lineMat(hex, 0.75) : lineMat(hex, 0.025);
+  if (l.type === 'topic') return lineMat(hex, 0.025); // 대분류 → 노트 바큇살은 아주 옅게
+  if (l.type === 'parent') return lineMat(hex, 0.045);
+  const weak = l.type === 'mentions' || l.type === 'related';
+  return lineMat(hex, weak ? 0.06 : 0.13);
+}
+
 function style3d() {
-  g3.nodeColor(color3)
-    .linkColor((l) => linkStyle(l).color)
+  g3.linkMaterial(link3dMat)
     .nodeThreeObject((n) => {
-      if (!state.labels || (!labelAlways.has(n.id) && !(n.type === 'topic' && G.nodes.length < 300))) return null;
-      const s = new SpriteText(n.title.length > 26 ? n.title.slice(0, 25) + '…' : n.title);
-      s.color = n.type === 'thesis' ? '#ecf6be' : 'rgba(236,234,226,0.75)';
-      s.textHeight = n.type === 'thesis' ? 3.6 : 2.6;
-      s.fontFace = 'Pretendard Variable, Malgun Gothic, sans-serif';
-      s.position.y = nodeRadius(n) + 5;
-      return s;
+      const grp = new THREE.Group();
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(nodeColor(n)), depthWrite: false, transparent: true, opacity: starAlpha(n) })); // 일반 혼합: 별이 겹쳐도 하얗게 타지 않음
+      sp.material.sizeAttenuation = false;
+      const sz = starSize(n); sp.scale.set(sz, sz, 1);
+      grp.add(sp); n.__sp = sp; n.__hex = nodeColor(n);
+      // 이름은 대분류·허브만, 작고 옅은 회색으로 (참고 사이트처럼 별 옆에 조용히)
+      if (state.labels && (n.type === 'topic' || labelAlways.has(n.id))) {
+        const t = new SpriteText(n.title.length > 24 ? n.title.slice(0, 23) + '…' : n.title);
+        t.color = 'rgba(214,211,200,0.85)'; t.fontFace = 'Pretendard Variable, Malgun Gothic, sans-serif'; t.fontWeight = '500';
+        t.textHeight = 0.016; // 화면 높이 대비 크기 (거리와 상관없이 약 13px)
+        t.material.sizeAttenuation = false; t.material.depthWrite = false; t.material.depthTest = false;
+        t.center.set(-0.08, 0.5); // 별 오른쪽에 붙여서
+        t.renderOrder = 10;
+        grp.add(t); n.__label = t;
+      }
+      return grp;
     });
 }
 function refresh3d() {
   if (!g3) return;
-  g3.nodeColor(color3).linkColor((l) => linkStyle(l).color);
+  for (const n of data3.nodes) {
+    const sp = n.__sp; if (!sp) continue;
+    const hex = nodeColor(n);
+    if (hex !== n.__hex) { sp.material.map = glowTexture(hex); sp.material.needsUpdate = true; n.__hex = hex; }
+    sp.material.opacity = starAlpha(n);
+    if (n.__label) n.__label.material.opacity = starAlpha(n) < 1 ? 0.15 : 1;
+  }
+  g3.linkMaterial(link3dMat);
 }
 
 /* ───────────── 보기 전환 ───────────── */
@@ -512,7 +571,7 @@ function buildSidebar(topicCount) {
     if (g3) { applySpacing(g3); pendingFit = true; g3.d3ReheatSimulation(); }
     if (!VIEWS[state.view].three && !VIEWS[state.view].table) applyLayout2d();
   });
-  $('recenter').onclick = () => { if (VIEWS[state.view].table) return; if (VIEWS[state.view].three) g3.zoomToFit(600, 40, nodeVisible); else g2?.zoomToFit(500, 70, nodeVisible); };
+  $('recenter').onclick = () => { if (VIEWS[state.view].table) return; if (VIEWS[state.view].three) fillView3d(); else g2?.zoomToFit(500, 70, nodeVisible); };
   const lbl = $('toggle-labels');
   lbl.textContent = state.labels ? '라벨 숨기기' : '라벨 보이기';
   lbl.onclick = () => { state.labels = !state.labels; savePrefs(); lbl.textContent = state.labels ? '라벨 숨기기' : '라벨 보이기'; if (g3) style3d(); refresh(); };
@@ -986,9 +1045,13 @@ function toast(msg) {
 }
 
 /* ───────────── 툴팁 ───────────── */
-function tipHtml(n) {
+function tipHtml(n, dark = isDark()) {
   const t = TYPES[n.type];
-  return `<div style="font-family:Pretendard Variable,sans-serif;max-width:300px;line-height:1.45"><b style="display:block;font-size:13.5px">${esc(n.title)}</b><span style="opacity:.7;font-size:11.5px">${t?.ko || n.type}${n.date ? ' · ' + n.date : ''}${n.type === 'topic' ? ` · 노트 ${n.degree}개` : ''}</span>${n.summary ? `<div style="font-size:12px;margin-top:4px;opacity:.85">${esc(n.summary.slice(0, 110))}${n.summary.length > 110 ? '…' : ''}</div>` : ''}</div>`;
+  const sub = n.props?.['요구사항ID'] ? [n.props['업무'], n.props['대분류'], n.props['중분류']].filter(Boolean).join(' › ') : (n.date || '');
+  const summary = n.type === 'topic' ? `연결된 노트 ${n.degree}개` : (n.summary || '');
+  return `<div class="tip${dark ? ' tip-dark' : ''}"><div class="tip-eyebrow"><span class="dot" style="background:${dark ? t?.dark : t?.light}"></span>${esc(t?.ko || n.type)}${sub ? ' · ' + esc(sub) : ''}</div>
+    <b class="tip-title">${esc(n.title)}</b>${summary ? `<div class="tip-body">${esc(summary.slice(0, 140))}${summary.length > 140 ? '…' : ''}</div>` : ''}
+    ${F.reader ? '<div class="tip-foot">누르면 본문이 열려요</div>' : ''}</div>`;
 }
 let mouse = { x: 0, y: 0 };
 $('stage').addEventListener('pointermove', (e) => {
@@ -1000,7 +1063,7 @@ $('stage').addEventListener('pointermove', (e) => {
 function showTip(n) {
   const tip = $('tooltip');
   if (!n || isMobile()) { tip.hidden = true; return; }
-  tip.innerHTML = tipHtml(n); tip.hidden = false; placeTip(tip);
+  tip.innerHTML = tipHtml(n); tip.classList.toggle('dark', isDark()); tip.hidden = false; placeTip(tip);
 }
 function placeTip(tip) {
   const W = $('stage').clientWidth;

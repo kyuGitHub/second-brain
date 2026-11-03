@@ -402,3 +402,18 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .toast[hidden] { display: none; }
 @media (max-width: 860px) { .table-view { padding: 76px 12px 12px; } .t-tools input { width: 100%; } .t-tools { width: 100%; } }
 .req-table td:not(.c-name) { white-space: nowrap; }
+
+/* ── 툴팁 (어두운 화면은 참고 사이트처럼 어두운 카드) ── */
+.tooltip { padding: 0; background: none; box-shadow: none; }
+.tip { max-width: 340px; padding: 12px 14px; border-radius: 12px; background: rgba(250,249,245,.97); color: var(--ink); box-shadow: 0 8px 30px rgba(0,0,0,.25); font-family: 'Pretendard Variable', Pretendard, sans-serif; line-height: 1.5; }
+.tip-dark { background: rgba(18,18,17,.94); color: #f1efe8; border: 1px solid rgba(255,255,255,.08); box-shadow: 0 16px 48px rgba(0,0,0,.6); backdrop-filter: blur(8px); }
+.tip-eyebrow { display: flex; align-items: center; gap: 6px; font-size: 10.5px; letter-spacing: .08em; color: var(--ink-3); text-transform: uppercase; }
+.tip-dark .tip-eyebrow { color: rgba(241,239,232,.55); }
+.tip-eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.tip-title { display: block; font-size: 14px; font-weight: 600; margin: 6px 0 4px; word-break: keep-all; }
+.tip-body { font-size: 12.5px; color: var(--ink-2); }
+.tip-dark .tip-body { color: rgba(241,239,232,.78); }
+.tip-foot { margin-top: 8px; font-size: 10.5px; letter-spacing: .06em; color: var(--ink-3); }
+.tip-dark .tip-foot { color: rgba(241,239,232,.45); }
+/* 3D 그래프 기본 툴팁 상자는 투명하게 (안의 카드가 모양을 담당) */
+.graph .float-tooltip-kap, .scene-tooltip { background: none !important; padding: 0 !important; border-radius: 0 !important; box-shadow: none !important; }

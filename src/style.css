@@ -417,3 +417,24 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .tip-dark .tip-foot { color: rgba(241,239,232,.45); }
 /* 3D 그래프 기본 툴팁 상자는 투명하게 (안의 카드가 모양을 담당) */
 .graph .float-tooltip-kap, .scene-tooltip { background: none !important; padding: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+
+/* ── 변경 이력 ── */
+.hist-list { display: grid; gap: 4px; }
+.hist-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 8px 12px; font-size: 12.5px; color: var(--ink); text-align: left; }
+.hist-row:hover:not(:disabled) { border-color: var(--ink-3); }
+.hist-row:disabled { cursor: default; opacity: .7; }
+.hist-row.base { background: var(--paper-2); border-style: dashed; }
+.hist-when { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.hist-base { color: var(--ink-3); font-size: 12px; }
+.hist-counts { display: flex; gap: 10px; font-variant-numeric: tabular-nums; font-weight: 600; }
+.c-add { color: #3f7a1f; } .c-chg { color: #b4531c; } .c-del { color: #a33a1f; }
+.hist { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 14px; }
+.hist h4 { font-size: 11px; letter-spacing: .1em; color: var(--ink-2); font-weight: 500; margin: 0 0 10px; }
+.hist-item { margin-bottom: 10px; }
+.hist-item .hist-when { font-size: 11.5px; margin-bottom: 2px; }
+.hist-item ul { margin: 0; padding-left: 18px; font-size: 13px; color: var(--ink); }
+.hist-item li { margin: 2px 0; }
+.h-from { color: var(--ink-3); text-decoration: line-through; }
+.h-to { color: var(--ink); background: #eef3d4; border-radius: 4px; padding: 0 4px; }
+.last-chg { margin-top: 10px; font-size: 12.5px; color: var(--ink-2); background: #eef3d4; border-radius: 8px; padding: 8px 12px; }
+.last-chg span { font-weight: 600; color: var(--ink); margin-right: 4px; }

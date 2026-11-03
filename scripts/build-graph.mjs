@@ -41,6 +41,9 @@ const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.a
 
 export function loadConfig() {
   const cfg = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+  // 이 PC에서만 다른 값(예: Mac 의 볼트 경로)은 config.local.json 에 적는다 (Git 에 안 올라감)
+  const localPath = path.join(ROOT, 'config.local.json');
+  if (fs.existsSync(localPath)) Object.assign(cfg, JSON.parse(fs.readFileSync(localPath, 'utf8')));
   // 우선순위: 환경변수 SB_VAULT > (SB_USE_SOURCE=1 이면 원본 볼트 sourcePath) > 저장소 안 vault 폴더(vaultPath)
   const vault = process.env.SB_VAULT || (process.env.SB_USE_SOURCE === '1' && cfg.sourcePath) || cfg.vaultPath;
   cfg.vaultAbs = path.resolve(ROOT, vault);
@@ -296,6 +299,8 @@ export function build({ quiet = false } = {}) {
     n.summary = String(n.fm.summary || n.fm.요약 || plain.slice(0, 160));
     n.searchText = (n.title + ' ' + n.aliases.join(' ') + ' ' + Object.values(n.props).join(' ') + ' ' + plain).slice(0, 1500);
     n.file = shortHash(n.id) + '.json';
+    // 변경 감지용 본문 지문. 업로드할 때 이전 업로드와 비교한다
+    n.fp = shortHash(html); // 본문 지문 (제목·속성은 따로 비교)
     fs.writeFileSync(path.join(OUT, 'notes', n.file), JSON.stringify({ html }));
   }
 
@@ -320,7 +325,7 @@ export function build({ quiet = false } = {}) {
   const nodes = [
     ...notes.map((n) => ({
       id: n.id, title: n.title, type: n.type, folder: n.folder, docType: n.docType, cats: n.cats, props: n.props, topics: n.topics, tags: n.tags,
-      date: n.date, source: n.source, url: n.url, summary: n.summary, file: n.file, search: n.searchText, broken: n.broken || 0, aux: n.aux || undefined,
+      date: n.date, source: n.source, url: n.url, summary: n.summary, file: n.file, search: n.searchText, broken: n.broken || 0, aux: n.aux || undefined, fp: n.fp,
     })),
     ...topicNodes.values(),
   ];

@@ -10,6 +10,9 @@ import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { build } from './build-graph.mjs';
+import { diffGraphs, isEmpty } from './history.mjs';
+
+const FORCE = process.argv.includes('--force'); // 바뀐 게 없어도 올리기
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BUCKET = 'second-brain';
@@ -34,6 +37,8 @@ const ask = (q, hidden = false) => new Promise((resolve) => {
   rl.question(q, (a) => { rl.close(); if (hidden) process.stdout.write('\n'); resolve(a.trim()); });
 });
 
+// 자동 실행(사람이 없는 창)에서는 물어볼 수 없으니 .env 의 값이 꼭 있어야 한다
+if ((!env.SB_EMAIL || !env.SB_PASSWORD) && !process.stdin.isTTY) fail('.env 에 SB_EMAIL 과 SB_PASSWORD 가 없어서 자동으로 올릴 수 없어요.');
 const email = env.SB_EMAIL || await ask('세컨브레인 계정 이메일: ');
 const password = env.SB_PASSWORD || await ask('비밀번호: ', true);
 
@@ -57,7 +62,33 @@ if (loginErr) {
   fail(loginErr.message === 'Invalid login credentials' ? '이메일 또는 비밀번호가 맞지 않아요.' : loginErr.message);
 }
 
-// 3) 올리기
+// 3) 이전 업로드와 비교해서 변경 이력 만들기
+const getJson = async (name) => {
+  const { data, error } = await sb.storage.from(BUCKET).download(name);
+  if (error) return null; // 처음 올리는 경우
+  try { return JSON.parse(await data.text()); } catch { return null; }
+};
+const prev = await getJson('graph.json');
+const prevHasFp = !!prev?.nodes?.some((n) => n.fp);
+const entry = diffGraphs(prev, graph);
+let history = (await getJson('history.json')) || [];
+if (!Array.isArray(history)) history = [];
+if (prev && prevHasFp && isEmpty(entry) && !FORCE) {
+  console.log('✔ 바뀐 노트가 없어서 올리지 않았어요. (그래도 올리려면 npm run upload -- --force)');
+  await sb.auth.signOut();
+  process.exit(0);
+}
+if (!prev || !prevHasFp) {
+  // 비교할 이전 기록이 없거나 옛 형식이면 '기준선'만 남긴다 (다음 업로드부터 변경이 기록됨)
+  history.unshift({ at: entry.at, baseline: true, total: entry.total, added: [], removed: [], changed: [] });
+  console.log(`  · 변경 이력 기준선을 만들었어요 (문서 ${entry.total}개). 다음 업로드부터 변경이 기록돼요.`);
+} else {
+  history.unshift(entry);
+  console.log(`  · 변경: 추가 ${entry.added.length} · 변경 ${entry.changed.length} · 삭제 ${entry.removed.length}`);
+}
+history = history.slice(0, 300);
+
+// 4) 올리기
 const put = async (name, obj) => {
   const body = new Blob([JSON.stringify(obj)], { type: 'application/json' });
   const { error } = await sb.storage.from(BUCKET).upload(name, body, { upsert: true, contentType: 'application/json', cacheControl: '0' });
@@ -71,6 +102,7 @@ const put = async (name, obj) => {
   console.log(`  ↑ ${name} (${mb} MB)`);
 };
 await put('graph.json', graph);
+await put('history.json', history);
 for (const [k, obj] of Object.entries(chunks)) await put(`notes/${k}.json`, obj);
 await sb.storage.from(BUCKET).remove(['notes.json']); // 예전 한 덩어리 파일 정리
 await sb.auth.signOut();

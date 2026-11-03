@@ -7,3 +7,4 @@ public/data/
 vault/
 .env
 .env.local
+config.local.json

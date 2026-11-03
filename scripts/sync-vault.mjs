@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cfg = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf8'));
+if (fs.existsSync(path.join(ROOT, 'config.local.json'))) Object.assign(cfg, JSON.parse(fs.readFileSync(path.join(ROOT, 'config.local.json'), 'utf8'))); // 이 PC 전용 값
 const source = path.resolve(ROOT, process.argv[2] || cfg.sourcePath || '');
 const target = path.resolve(ROOT, cfg.vaultPath || './vault');
 const exclude = new Set(cfg.exclude || []);

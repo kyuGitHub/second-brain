@@ -31,3 +31,11 @@ export async function loadNoteHtml(file) {
   if (!chunks.has(k)) chunks.set(k, remoteJson(`notes/${k}.json`).catch((e) => { chunks.delete(k); throw e; }));
   return (await chunks.get(k))[file] || '';
 }
+
+// 변경 이력 (업로드할 때마다 한 건씩 쌓임, 최신이 앞). 없으면 빈 목록
+export async function loadHistory() {
+  try {
+    if (LOCAL) { const res = await fetch('data/history.json', { cache: 'no-store' }); return res.ok ? res.json() : []; }
+    return await remoteJson('history.json');
+  } catch { return []; }
+}

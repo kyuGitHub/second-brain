@@ -2,7 +2,7 @@
 import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
 import ForceGraph from 'force-graph';
 import { gate } from './auth.js';
-import { loadGraph, loadNoteHtml, LOCAL } from './data.js';
+import { loadGraph, loadNoteHtml, loadHistory, LOCAL } from './data.js';
 import ForceGraph3D from '3d-force-graph';
 import SpriteText from 'three-spritetext';
 import * as THREE from 'three';
@@ -77,6 +77,8 @@ let G = null; // 원본 그래프
 //  categories: 왼쪽 렌즈·주제·태그·핵심 주장 목록 / search: 검색창 / reader: 노트 본문 패널
 let F = { categories: false, search: false, reader: false };
 let reqIndex = new Map(); // 요구사항ID(대문자) → 노드
+let HISTORY = [], lastChange = new Map(); // 변경 이력, 노트 key → 가장 최근 변경 { at, fields }
+const keyOf = (n) => (n.props?.['요구사항ID'] ? 'req:' + n.props['요구사항ID'] : 'id:' + n.id); // scripts/history.mjs 와 같은 규칙
 let labelAlways = new Set(); // 항상 이름을 보여줄 노드 (연결이 많은 색인)
 let byId = new Map(), nbr = new Map(), topicColorMap = new Map(), thesisZone = new Set(), dateDomain = [0, 1];
 let g2 = null, g3 = null, data2 = null, data3 = null, pendingFit = true, bloom = null;
@@ -150,6 +152,16 @@ async function load() {
   setView(state.view, { initial: true });
   window.addEventListener('hashchange', onHash);
   onHash();
+  loadHistory().then((h) => {
+    HISTORY = Array.isArray(h) ? h : [];
+    lastChange = new Map();
+    for (const e of HISTORY) {
+      for (const c of e.changed || []) if (!lastChange.has(c.k)) lastChange.set(c.k, { at: e.at, kind: '변경', fields: c.fields });
+      for (const c of e.added || []) if (!lastChange.has(c.k)) lastChange.set(c.k, { at: e.at, kind: '추가' });
+    }
+    if (VIEWS[state.view].table) renderTable();
+    if (state.panel?.kind === 'overview') openOverview({ back: true });
+  });
 }
 
 function countBy(arr) {
@@ -901,6 +913,8 @@ function openOverview({ back = false } = {}) {
         <span class="ov-bar-track"><span style="width:${pct(v, maxBiz)}%"></span></span><span class="ov-bar-n">${v}</span></button>`).join('')}
     </div>
 
+    ${changesOverviewHtml()}
+
     <h3 class="ov-h">추적성</h3>
     <div class="ov-meter"><div class="ov-meter-bar"><span style="width:${pct(covered, nonMeeting.length)}%"></span></div>
       <p>회의·인터뷰와 이어진 문서 <b>${pct(covered, nonMeeting.length)}%</b> (${covered.toLocaleString()} / ${nonMeeting.length.toLocaleString()})</p></div>
@@ -929,9 +943,44 @@ $('panel-body').addEventListener('click', (e) => {
     openCustomList('데이터 점검', labels[ov.dataset.ov], list.map((n) => n.id));
     return;
   }
+  const hc = e.target.closest('[data-hist]');
+  if (hc) {
+    const h = HISTORY[Number(hc.dataset.hist)]; if (!h) return;
+    const keys = new Set([...(h.added || []), ...(h.changed || [])].map((c) => c.k));
+    const ids = G.nodes.filter((n) => !n.aux && keys.has(keyOf(n))).map((n) => n.id);
+    openCustomList('변경 이력', `${fmtWhen(h.at)} 업로드에서 추가·변경된 문서`, ids);
+    return;
+  }
   const biz = e.target.closest('[data-biz]');
   if (biz && catDefs().some((d) => d.key === 'req')) { if (applyCat('req', [biz.dataset.biz])) openList(); }
 });
+
+/* ───────────── 변경 이력 ───────────── */
+const fmtWhen = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }); };
+function changesOverviewHtml() {
+  if (!HISTORY.length) return `<h3 class="ov-h">최근 변경</h3><p class="hint" style="margin:0">아직 변경 이력이 없어요. 다음 업로드부터 추가·변경·삭제가 기록돼요.</p>`;
+  const rows = HISTORY.slice(0, 6).map((h, i) => h.baseline
+    ? `<div class="hist-row base"><span class="hist-when">${esc(fmtWhen(h.at))}</span><span class="hist-base">기록 시작 · 문서 ${(h.total || 0).toLocaleString()}개</span></div>`
+    : `<button type="button" class="hist-row" data-hist="${i}" ${h.added.length + h.changed.length ? '' : 'disabled'}><span class="hist-when">${esc(fmtWhen(h.at))}</span>
+        <span class="hist-counts"><span class="c-add">+${h.added.length}</span><span class="c-chg">~${h.changed.length}</span><span class="c-del">−${h.removed.length}</span></span></button>`).join('');
+  return `<h3 class="ov-h">최근 변경 <span class="ov-h-s">업로드별 · 추가 / 변경 / 삭제</span></h3><div class="hist-list">${rows}</div>`;
+}
+function historyHtml(n) {
+  if (n.type === 'topic' || n.aux) return '';
+  const k = keyOf(n);
+  const items = [];
+  for (const h of HISTORY) {
+    if (h.baseline) continue;
+    const c = (h.changed || []).find((x) => x.k === k);
+    if (c) items.push({ at: h.at, html: c.fields.map((f) => f.f === '본문' ? '<li><b>본문</b>이 바뀌었어요</li>'
+      : `<li><b>${esc(f.f)}</b> <span class="h-from">${esc(f.from || '(빈 값)')}</span> → <span class="h-to">${esc(f.to || '(빈 값)')}</span></li>`).join('') });
+    else if ((h.added || []).some((x) => x.k === k)) items.push({ at: h.at, html: '<li>새로 추가됐어요</li>' });
+  }
+  const since = HISTORY.length ? fmtWhen(HISTORY[HISTORY.length - 1].at) : '';
+  return `<div class="hist"><h4>변경 이력</h4>${items.length
+    ? items.slice(0, 20).map((it) => `<div class="hist-item"><div class="hist-when">${esc(fmtWhen(it.at))}</div><ul>${it.html}</ul></div>`).join('')
+    : `<p class="hint" style="margin:0">${HISTORY.length ? `${esc(since)} 이후 기록된 변경이 없어요.` : '변경 이력은 다음 업로드부터 기록돼요.'}</p>`}</div>`;
+}
 
 /* ───────────── 요구사항 표 ───────────── */
 const T_COLS = [
@@ -943,12 +992,14 @@ const T_COLS = [
   { k: 'dev', label: '개발유형', get: (n) => n.props?.['개발유형'] || '' },
   { k: 'res', label: '처리결과', get: (n) => (n.props?.['처리결과'] === '취소선' ? '취소' : n.props?.['처리결과'] || '') },
   { k: 'links', label: '연결', get: (n) => n.degree, num: true },
+  { k: 'chg', label: '최근 변경', get: (n) => (lastChange.get(keyOf(n))?.at || '').slice(0, 10) },
 ];
-let tSort = { k: 'id', dir: 1 }, tQuery = '', tRes = 'all', tDev = 'all';
+let tSort = { k: 'id', dir: 1 }, tQuery = '', tRes = 'all', tDev = 'all', tChg = 'all';
 function tableRows() {
   let rows = G.nodes.filter((n) => !n.aux && n.props?.['요구사항ID'] && (!state.catSet || state.catSet.has(n.id)));
   if (tRes !== 'all') rows = rows.filter((n) => T_COLS[6].get(n) === tRes);
   if (tDev !== 'all') rows = rows.filter((n) => (T_COLS[5].get(n) || '미지정') === tDev);
+  if (tChg !== 'all') { const since = new Date(Date.now() - Number(tChg) * 864e5).toISOString(); rows = rows.filter((n) => (lastChange.get(keyOf(n))?.at || '') >= since); }
   if (tQuery) rows = rows.filter((n) => (n.title + ' ' + Object.values(n.props || {}).join(' ') + ' ' + (n.search || '')).toLowerCase().includes(tQuery));
   const col = T_COLS.find((c) => c.k === tSort.k);
   rows.sort((a, b) => (col.num ? col.get(a) - col.get(b) : String(col.get(a)).localeCompare(String(col.get(b)), 'ko', { numeric: true })) * tSort.dir
@@ -970,6 +1021,7 @@ function renderTable() {
         <input type="search" id="t-q" placeholder="표 안에서 찾기" value="${esc(tQuery)}" autocomplete="off" />
         <select id="t-res" aria-label="처리결과">${opt('all', tRes, '처리결과 전체')}${opt('유지', tRes, '유지')}${opt('취소', tRes, '취소')}</select>
         <select id="t-dev" aria-label="개발유형">${opt('all', tDev, '개발유형 전체')}${devs.map((d) => opt(d, tDev, d)).join('')}</select>
+        <select id="t-chg" aria-label="최근 변경">${opt('all', tChg, '변경 전체')}${opt('7', tChg, '최근 7일 변경')}${opt('30', tChg, '최근 30일 변경')}</select>
         <button type="button" class="ghost-btn" id="t-csv">CSV 내려받기</button>
       </div>
     </div>
@@ -983,6 +1035,7 @@ function renderTable() {
   if (focusedQ) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
   $('t-res').onchange = (e) => { tRes = e.target.value; renderTable(); };
   $('t-dev').onchange = (e) => { tDev = e.target.value; renderTable(); };
+  $('t-chg').onchange = (e) => { tChg = e.target.value; renderTable(); };
   $('t-csv').onclick = () => downloadCsv(rows);
 }
 $('table-view').addEventListener('click', (e) => {
@@ -1160,9 +1213,11 @@ async function openNote(id, { fromHash = false, back = false } = {}) {
     ${n.props?.['처리결과'] === '취소선' ? '<div class="badge-cancel">취소된 요구사항</div>' : ''}
     ${chips ? `<div class="p-chips">${chips}</div>` : ''}
     ${propsHtml(n)}
+    ${(() => { const c = lastChange.get(keyOf(n)); if (!c) return ''; const what = c.kind === '추가' ? '새로 추가됨' : c.fields.map((f) => f.f).join(', ') + ' 변경'; return `<div class="last-chg"><span>최근 변경</span> ${esc(fmtWhen(c.at))} · ${esc(what)} <a class="link-btn" href="#" data-goto-hist="1">이력 보기</a></div>`; })()}
     ${n.props?.['요구사항ID'] && !G.links.some((l) => (l.source === n.id && l.type === 'evidence') || (l.target === n.id && l.type === 'meeting'))
       ? '<div class="hint-box">근거 회의가 연결되지 않은 요구사항이에요. 옵시디언에서 <code>근거회의: "[[회의록 이름]]"</code> 을 채우면 다음 업로드부터 연결돼요.</div>' : ''}
     <div class="md" id="md">${n.type === 'topic' ? '' : '<p style="color:#8b8a82">불러오는 중…</p>'}</div>
+    ${historyHtml(n)}
     <div class="rel">${relatedHtml(n)}</div>`;
   body.scrollTop = 0;
 
@@ -1211,6 +1266,7 @@ $('panel-body').addEventListener('click', (e) => {
   if (tg) { if (catDefs().some((d) => d.key === 'tag')) { setScheme('tag'); selectCat(tg.dataset.tag.split('/')); } return; }
   const more = e.target.closest('[data-more]');
   if (more) { listLimit += 200; renderList(); return; }
+  if (e.target.closest('[data-goto-hist]')) { e.preventDefault(); document.querySelector('#panel-body .hist')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
   const cr = e.target.closest('[data-crumb]');
   if (cr) { const path = JSON.parse(cr.dataset.crumb); if (applyCat('req', path)) { setHash('#/cat/' + ['req', ...path].map(encodeURIComponent).join('/')); if (!VIEWS[state.view].table) openList(); else toast(`표를 "${path.map(catLabel).join(' › ')}" 로 걸렀어요`); } return; }
   if (e.target.closest('.copy-link')) { copyText(location.href).then((ok) => toast(ok ? '링크를 복사했어요' : '주소창의 링크를 복사해 주세요')); return; }

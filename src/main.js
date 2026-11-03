@@ -38,6 +38,7 @@ const EDGES = {
 };
 const PALETTE = ['#e4572e', '#f3a712', '#a8c256', '#29bf97', '#4fb3d9', '#6a7fdb', '#b06ad9', '#e86fa8', '#c9b18a', '#7fd1b9', '#f78c6b', '#9fa8ff'];
 const VIEWS = {
+  table:         { ko: '표', light: true, table: true, hint: '요구사항을 표로 봐요. 머리글을 누르면 정렬되고, 왼쪽 카테고리를 고르면 표가 걸러져요. CSV로 내려받을 수 있어요.' },
   brain:         { ko: '브레인 3D', light: false, three: true, hint: '전체 기억을 3D 별자리로 보여줘요. 드래그로 회전, 스크롤로 확대해요. 노드를 누르면 연결된 노트가 강조돼요.' },
   free:          { ko: '자유',     light: false, hint: '노드를 끌어서 배치를 바꿀 수 있어요. 스크롤로 확대해요. 노드를 누르면 연결된 노트가 강조돼요.' },
   constellation: { ko: '별자리',   light: true,  hint: '중심 노드(대분류)를 원 위에 고정하고, 각 노트를 연결된 중심 쪽으로 끌어당겨요.' },
@@ -74,6 +75,7 @@ let G = null; // 원본 그래프
 // 기능 스위치 (config.json 의 features). 요구사항이 정해지면 true 로 켠다.
 //  categories: 왼쪽 렌즈·주제·태그·핵심 주장 목록 / search: 검색창 / reader: 노트 본문 패널
 let F = { categories: false, search: false, reader: false };
+let reqIndex = new Map(); // 요구사항ID(대문자) → 노드
 let labelAlways = new Set(); // 항상 이름을 보여줄 노드 (연결이 많은 색인)
 let byId = new Map(), nbr = new Map(), topicColorMap = new Map(), thesisZone = new Set(), dateDomain = [0, 1];
 let g2 = null, g3 = null, data2 = null, data3 = null, pendingFit = true, bloom = null;
@@ -115,6 +117,7 @@ async function load() {
   if (!G.nodes.length) { showEmpty('볼트에서 노트를 찾지 못했어요.<br>config.json 의 vaultPath 를 확인해 주세요.'); return; }
 
   byId = new Map(G.nodes.map((n) => [n.id, n]));
+  reqIndex = new Map(G.nodes.filter((n) => n.props?.['요구사항ID']).map((n) => [String(n.props['요구사항ID']).toUpperCase(), n]));
   for (const n of G.nodes) nbr.set(n.id, new Set());
   for (const l of G.links) { nbr.get(l.source)?.add(l.target); nbr.get(l.target)?.add(l.source); }
 
@@ -135,7 +138,7 @@ async function load() {
   for (const n of G.nodes) if (n.type === 'thesis') { thesisZone.add(n.id); nbr.get(n.id).forEach((x) => byId.get(x)?.type !== 'topic' && thesisZone.add(x)); }
 
   // 큰 그래프: 저장된 보기가 없으면 2D 로 시작하고, 빽빽한 연결(관련 요구사항·언급)은 기본 숨김
-  if (!saved.view && G.nodes.length > 800) state.view = 'free';
+  if (!saved.view) state.view = G.nodes.some((n) => n.props?.['요구사항ID']) ? 'table' : (G.nodes.length > 800 ? 'free' : state.view);
   if (G.links.length > 3000 && !saved.edgesTouched) ['related', 'mentions'].forEach((k) => state.hiddenEdges.add(k));
 
   // 색인이 많으면 연결이 많은 상위 25개만 항상 이름을 보여준다 (나머지는 확대하면 보임)
@@ -146,7 +149,7 @@ async function load() {
   setView(state.view, { initial: true });
   window.addEventListener('hashchange', onHash);
   onHash();
-  if (!location.hash && F.reader && !isMobile()) openOverview();
+  if (!location.hash && F.reader && !isMobile() && !VIEWS[state.view].table) openOverview();
 }
 
 function countBy(arr) {
@@ -445,9 +448,10 @@ function setView(v, { initial = false } = {}) {
   }
   state.view = v;
   savePrefs();
-  const three = !!VIEWS[v].three;
+  const three = !!VIEWS[v].three, table = !!VIEWS[v].table;
   $('graph3d').hidden = !three;
-  $('graph2d').hidden = three;
+  $('graph2d').hidden = three || table;
+  $('table-view').hidden = !table;
   $('stage').classList.toggle('light', VIEWS[v].light);
   $('timeline-bar').hidden = v !== 'timeline';
   $('view-hint').textContent = VIEWS[v].hint;
@@ -455,7 +459,8 @@ function setView(v, { initial = false } = {}) {
   resize();
   // 숨겨진 3D 는 그리기를 멈춰서 컴퓨터 부담을 줄인다
   if (three) { g3.resumeAnimation(); pendingFit = true; refresh3d(); if (!initial) g3.d3ReheatSimulation(); }
-  else { g3?.pauseAnimation(); applyLayout2d(); }
+  else if (table) { g3?.pauseAnimation(); g2?.pauseAnimation?.(); renderTable(); }
+  else { g3?.pauseAnimation(); g2?.resumeAnimation?.(); applyLayout2d(); }
   updateTimelineLabels();
 }
 
@@ -505,9 +510,9 @@ function buildSidebar(topicCount) {
     state.spacing = k; savePrefs();
     if (g2) applySpacing(g2);
     if (g3) { applySpacing(g3); pendingFit = true; g3.d3ReheatSimulation(); }
-    if (!VIEWS[state.view].three) applyLayout2d();
+    if (!VIEWS[state.view].three && !VIEWS[state.view].table) applyLayout2d();
   });
-  $('recenter').onclick = () => { if (VIEWS[state.view].three) g3.zoomToFit(600, 40, nodeVisible); else g2.zoomToFit(500, 70, nodeVisible); };
+  $('recenter').onclick = () => { if (VIEWS[state.view].table) return; if (VIEWS[state.view].three) g3.zoomToFit(600, 40, nodeVisible); else g2?.zoomToFit(500, 70, nodeVisible); };
   const lbl = $('toggle-labels');
   lbl.textContent = state.labels ? '라벨 숨기기' : '라벨 보이기';
   lbl.onclick = () => { state.labels = !state.labels; savePrefs(); lbl.textContent = state.labels ? '라벨 숨기기' : '라벨 보이기'; if (g3) style3d(); refresh(); };
@@ -545,8 +550,9 @@ function renderFilterChips(id, counts, set) {
 function onFilterChange() {
   refresh();
   pendingFit = true;
-  if (VIEWS[state.view].three) g3.zoomToFit(600, 40, nodeVisible);
-  else setTimeout(() => g2.zoomToFit(500, 70, nodeVisible), 50);
+  if (VIEWS[state.view].table) renderTable();
+  else if (VIEWS[state.view].three) g3?.zoomToFit(600, 40, nodeVisible);
+  else setTimeout(() => g2?.zoomToFit(500, 70, nodeVisible), 50);
 }
 function toggleLegend(e, set) {
   const li = e.target.closest('li'); if (!li) return;
@@ -672,9 +678,16 @@ function applyCat(scheme, path) {
   onFilterChange();
   return true;
 }
-function selectCat(path) { if (applyCat(state.scheme, path)) { listLimit = 200; openList(); } }
+function selectCat(path) {
+  if (!applyCat(state.scheme, path)) return;
+  setHash('#/cat/' + [state.scheme, ...path].map(encodeURIComponent).join('/'));
+  if (VIEWS[state.view].table) return; // 표 보기에서는 표가 걸러지는 것으로 충분
+  listLimit = 200; openList();
+}
+function setHash(h) { try { history.replaceState(null, '', h || location.pathname + location.search); } catch { /* 무시 */ } }
 function clearCat() {
   state.cat = null; state.catSet = null;
+  if (location.hash.startsWith('#/cat/')) setHash('');
   renderTree();
   onFilterChange();
 }
@@ -697,7 +710,7 @@ function showListPanel(entry, back) {
   state.panel = entry;
   state.selected = null;
   $('node-card').hidden = true;
-  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  if (/^#\/(note|req)\//.test(location.hash)) setHash(state.cat ? '#/cat/' + [state.cat.scheme, ...state.cat.path].map(encodeURIComponent).join('/') : '');
   $('panel').hidden = false;
   $('panel-back').disabled = !state.stack.length;
   listQuery = '';
@@ -803,7 +816,8 @@ function openOverview({ back = false } = {}) {
   const bizCount = countBy(reqs.flatMap((n) => (n.cats?.req || []).map((p) => p[0])));
   const maxBiz = Math.max(1, ...bizCount.values());
   const typeCount = countBy(notes.map((n) => n.docType || '(없음)'));
-  const recent = notes.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || a.title.localeCompare(b.title, 'ko')).slice(0, 8);
+  const viewed = loadRecent().map((id) => byId.get(id)).filter(Boolean);
+  const recent = viewed.length ? viewed.slice(0, 8) : notes.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || a.title.localeCompare(b.title, 'ko')).slice(0, 8);
 
   window.__ov = { reqNoMeeting, orphans, brokenNotes, noDomain, cancelled }; // 점검 목록 열기용
   const tile = (n, label, sub = '') => `<div class="ov-tile"><div class="ov-n">${n.toLocaleString()}</div><div class="ov-l">${label}</div>${sub ? `<div class="ov-s">${sub}</div>` : ''}</div>`;
@@ -840,7 +854,7 @@ function openOverview({ back = false } = {}) {
       ${check('cancelled', '취소된 요구사항', cancelled.length, 0, '처리결과: 취소선')}
     </div>
 
-    <h3 class="ov-h">최근 수정</h3>
+    <h3 class="ov-h">${viewed.length ? '최근 본 문서' : '최근 수정'}</h3>
     <div class="ov-recent">${recent.map((n) => `<button type="button" class="li-item" data-id="${n.id}"><span class="dot" style="background:${TYPES[n.type]?.light}"></span>
       <span class="li-main"><span class="li-t">${esc(n.title)}</span><span class="li-s">${[n.docType, n.date].filter(Boolean).map(esc).join(' · ')}</span></span></button>`).join('')}</div>`;
   $('panel-body').scrollTop = 0;
@@ -858,6 +872,118 @@ $('panel-body').addEventListener('click', (e) => {
   const biz = e.target.closest('[data-biz]');
   if (biz && catDefs().some((d) => d.key === 'req')) { if (applyCat('req', [biz.dataset.biz])) openList(); }
 });
+
+/* ───────────── 요구사항 표 ───────────── */
+const T_COLS = [
+  { k: 'id', label: '요구사항 ID', get: (n) => n.props?.['요구사항ID'] || '' },
+  { k: 'name', label: '요구사항명', get: (n) => n.props?.['요구정의명'] || n.title.replace(/^REQ-[A-Z]+-\d+\s*/, '') },
+  { k: 'biz', label: '업무', get: (n) => n.props?.['업무'] || '' },
+  { k: 'd1', label: '대분류', get: (n) => n.props?.['대분류'] || '' },
+  { k: 'd2', label: '중분류', get: (n) => n.props?.['중분류'] || '' },
+  { k: 'dev', label: '개발유형', get: (n) => n.props?.['개발유형'] || '' },
+  { k: 'res', label: '처리결과', get: (n) => (n.props?.['처리결과'] === '취소선' ? '취소' : n.props?.['처리결과'] || '') },
+  { k: 'links', label: '연결', get: (n) => n.degree, num: true },
+];
+let tSort = { k: 'id', dir: 1 }, tQuery = '', tRes = 'all', tDev = 'all';
+function tableRows() {
+  let rows = G.nodes.filter((n) => !n.aux && n.props?.['요구사항ID'] && (!state.catSet || state.catSet.has(n.id)));
+  if (tRes !== 'all') rows = rows.filter((n) => T_COLS[6].get(n) === tRes);
+  if (tDev !== 'all') rows = rows.filter((n) => (T_COLS[5].get(n) || '미지정') === tDev);
+  if (tQuery) rows = rows.filter((n) => (n.title + ' ' + Object.values(n.props || {}).join(' ') + ' ' + (n.search || '')).toLowerCase().includes(tQuery));
+  const col = T_COLS.find((c) => c.k === tSort.k);
+  rows.sort((a, b) => (col.num ? col.get(a) - col.get(b) : String(col.get(a)).localeCompare(String(col.get(b)), 'ko', { numeric: true })) * tSort.dir
+    || T_COLS[0].get(a).localeCompare(T_COLS[0].get(b), 'en', { numeric: true }));
+  return rows;
+}
+function renderTable() {
+  const box = $('table-view'); if (!box || !G || !VIEWS[state.view].table) return;
+  const all = G.nodes.filter((n) => !n.aux && n.props?.['요구사항ID']);
+  const scope = state.cat ? state.cat.path.map(catLabel).join(' › ') : '전체 요구사항';
+  const rows = tableRows();
+  const opt = (v, cur, label) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(label)}</option>`;
+  const devs = [...countBy(all.map((n) => T_COLS[5].get(n) || '미지정')).keys()];
+  const focusedQ = document.activeElement?.id === 't-q';
+  box.innerHTML = `
+    <div class="t-head">
+      <div><div class="t-eyebrow">요구사항 표${state.cat && state.cat.scheme !== 'req' ? ' · 회의록 분류는 표에 적용되지 않아요' : ''}</div><h2 class="t-title">${esc(scope)}</h2></div>
+      <div class="t-tools">
+        <input type="search" id="t-q" placeholder="표 안에서 찾기" value="${esc(tQuery)}" autocomplete="off" />
+        <select id="t-res" aria-label="처리결과">${opt('all', tRes, '처리결과 전체')}${opt('유지', tRes, '유지')}${opt('취소', tRes, '취소')}</select>
+        <select id="t-dev" aria-label="개발유형">${opt('all', tDev, '개발유형 전체')}${devs.map((d) => opt(d, tDev, d)).join('')}</select>
+        <button type="button" class="ghost-btn" id="t-csv">CSV 내려받기</button>
+      </div>
+    </div>
+    <div class="t-count">${rows.length.toLocaleString()}건${rows.length !== all.length ? ` / 전체 ${all.length.toLocaleString()}건` : ''}</div>
+    <div class="t-wrap"><table class="req-table">
+      <thead><tr>${T_COLS.map((c) => `<th data-k="${c.k}" class="${c.num ? 'num' : ''}" aria-sort="${tSort.k === c.k ? (tSort.dir > 0 ? 'ascending' : 'descending') : 'none'}">${c.label}${tSort.k === c.k ? (tSort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map((n) => `<tr data-id="${n.id}" class="${T_COLS[6].get(n) === '취소' ? 'cancel' : ''}${state.selected === n.id ? ' on' : ''}" tabindex="0">${T_COLS.map((c) => `<td class="${c.num ? 'num' : ''} c-${c.k}">${esc(c.get(n))}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>${rows.length ? '' : '<p class="hint" style="padding:16px">조건에 맞는 요구사항이 없어요.</p>'}</div>`;
+  const q = $('t-q');
+  q.oninput = () => { tQuery = q.value.trim().toLowerCase(); clearTimeout(q._t); q._t = setTimeout(renderTable, 180); };
+  if (focusedQ) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+  $('t-res').onchange = (e) => { tRes = e.target.value; renderTable(); };
+  $('t-dev').onchange = (e) => { tDev = e.target.value; renderTable(); };
+  $('t-csv').onclick = () => downloadCsv(rows);
+}
+$('table-view').addEventListener('click', (e) => {
+  const th = e.target.closest('th[data-k]');
+  if (th) { tSort = { k: th.dataset.k, dir: tSort.k === th.dataset.k ? -tSort.dir : 1 }; renderTable(); return; }
+  const tr = e.target.closest('tr[data-id]');
+  if (tr) openNote(tr.dataset.id);
+});
+$('table-view').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  const tr = e.target.closest('tr[data-id]'); if (tr) openNote(tr.dataset.id);
+});
+function downloadCsv(rows) {
+  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [T_COLS.map((c) => q(c.label)).join(','), ...rows.map((n) => T_COLS.map((c) => q(c.get(n))).join(','))];
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }); // 엑셀에서 한글이 깨지지 않도록 BOM
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  // 한글 파일 이름은 일부 브라우저에서 'download' 로 바뀌어서 영문으로 둔다
+  a.download = `RIS_requirements_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  toast(`${rows.length.toLocaleString()}건을 CSV로 내려받았어요`);
+}
+
+/* ───────────── 작은 도우미들 ───────────── */
+// 요구사항의 분류 경로: ADMIN › 주택담보대출 › 심사 (누르면 그 분류로)
+function crumbHtml(n) {
+  const p = n.cats?.req?.[0];
+  if (!p || !p.length) return '';
+  return `<nav class="p-crumb" aria-label="분류 경로">${p.map((x, i) => `<button type="button" data-crumb="${esc(JSON.stringify(p.slice(0, i + 1)))}">${esc(catLabel(x))}</button>`).join('<span>›</span>')}</nav>`;
+}
+// 본문 속 "REQ-AP-123" 같은 글자를 그 요구사항으로 가는 링크로 바꾼다
+function linkifyIds(root, selfId) {
+  const re = /\bREQ-[A-Z]{1,5}-\d{1,5}\b/g;
+  const has = /\bREQ-[A-Z]{1,5}-\d{1,5}\b/; // test 용 (g 플래그가 없어야 매번 처음부터 찾음)
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (t) => (t.parentElement.closest('a, code, pre') || !has.test(t.nodeValue) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+  const texts = []; while (walker.nextNode()) texts.push(walker.currentNode);
+  for (const t of texts) {
+    const frag = document.createDocumentFragment(); let last = 0; const v = t.nodeValue;
+    v.replace(re, (m, off) => {
+      const target = reqIndex.get(m.toUpperCase());
+      if (!target || target.id === selfId) return m;
+      frag.append(v.slice(last, off));
+      const a = document.createElement('a'); a.className = 'wl'; a.dataset.id = target.id; a.textContent = m; frag.append(a);
+      last = off + m.length; return m;
+    });
+    if (last) { frag.append(v.slice(last)); t.replaceWith(frag); }
+  }
+}
+// 최근 본 문서 (이 브라우저에만 저장)
+function loadRecent() { try { return JSON.parse(localStorage.getItem('sb-recent') || '[]'); } catch { return []; } }
+function rememberRecent(id) { try { localStorage.setItem('sb-recent', JSON.stringify([id, ...loadRecent().filter((x) => x !== id)].slice(0, 12))); } catch { /* 저장 불가 */ } }
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
+}
+let toastTimer = null;
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), 2200);
+}
 
 /* ───────────── 툴팁 ───────────── */
 function tipHtml(n) {
@@ -928,9 +1054,18 @@ document.addEventListener('keydown', (e) => {
 
 /* ───────────── 노트 패널 ───────────── */
 function onHash() {
-  const m = location.hash.match(/^#\/note\/(.+)$/);
-  if (m && byId.has(decodeURIComponent(m[1]))) openNote(decodeURIComponent(m[1]), { fromHash: true });
-  else if (!m && state.selected) closePanel({ fromHash: true });
+  const h = location.hash;
+  let m;
+  if ((m = h.match(/^#\/req\/(.+)$/))) {
+    const n = reqIndex.get(decodeURIComponent(m[1]).toUpperCase());
+    if (n) { openNote(n.id, { fromHash: true }); return; }
+  }
+  if ((m = h.match(/^#\/note\/(.+)$/)) && byId.has(decodeURIComponent(m[1]))) { openNote(decodeURIComponent(m[1]), { fromHash: true }); return; }
+  if ((m = h.match(/^#\/cat\/(.+)$/))) {
+    const [scheme, ...path] = m[1].split('/').map(decodeURIComponent);
+    if (catDefs().some((d) => d.key === scheme) && path.length && applyCat(scheme, path)) { if (!VIEWS[state.view].table) openList(); return; }
+  }
+  if (state.selected) closePanel({ fromHash: true });
 }
 
 async function openNote(id, { fromHash = false, back = false } = {}) {
@@ -939,8 +1074,11 @@ async function openNote(id, { fromHash = false, back = false } = {}) {
   if (!back && state.panel && !(state.panel.kind === 'note' && state.panel.id === id)) state.stack.push(state.panel);
   state.panel = { kind: 'note', id };
   state.selected = id;
-  if (!fromHash) history.replaceState(null, '', '#/note/' + encodeURIComponent(id));
+  if (!fromHash) setHash(n.props?.['요구사항ID'] ? '#/req/' + encodeURIComponent(n.props['요구사항ID']) : '#/note/' + encodeURIComponent(id));
+  rememberRecent(id);
   if (!F.reader) { showNodeCard(n); focusNode(id); refresh(); return; }
+  document.querySelectorAll('.req-table tr.on').forEach((r) => r.classList.remove('on'));
+  document.querySelector(`.req-table tr[data-id="${id}"]`)?.classList.add('on');
   $('panel').hidden = false;
   $('panel-back').disabled = !state.stack.length;
   focusNode(id);
@@ -953,7 +1091,8 @@ async function openNote(id, { fromHash = false, back = false } = {}) {
   body.innerHTML = `
     <div class="p-type"><span class="dot" style="background:${t?.light}"></span>${t?.ko || n.type}${t?.en ? ' · ' + t.en : ''}</div>
     <h2 class="p-title">${esc(n.title)}</h2>
-    <div class="p-meta">${meta}</div>
+    ${crumbHtml(n)}
+    <div class="p-meta">${meta}<span>·</span><button type="button" class="link-btn copy-link">링크 복사</button></div>
     ${n.props?.['처리결과'] === '취소선' ? '<div class="badge-cancel">취소된 요구사항</div>' : ''}
     ${chips ? `<div class="p-chips">${chips}</div>` : ''}
     ${propsHtml(n)}
@@ -966,7 +1105,7 @@ async function openNote(id, { fromHash = false, back = false } = {}) {
   if (n.type === 'topic') { $('md').remove(); return; }
   try {
     const html = await loadNoteHtml(n.file);
-    if (state.selected === id) $('md').innerHTML = html || '<p style="color:#8b8a82">본문이 비어 있어요.</p>';
+    if (state.selected === id) { $('md').innerHTML = html || '<p style="color:#8b8a82">본문이 비어 있어요.</p>'; linkifyIds($('md'), n.id); }
   } catch {
     if (state.selected === id) $('md').innerHTML = '<p style="color:#8b8a82">본문을 불러오지 못했어요.</p>';
   }
@@ -977,17 +1116,25 @@ function relatedHtml(n) {
   for (const l of G.links) {
     let dir, other;
     if (l.source === n.id) { dir = 'out'; other = l.target; } else if (l.target === n.id) { dir = 'in'; other = l.source; } else continue;
-    const key = `${l.type}|${dir}`;
+    const key = l.type === 'related' ? 'related|both' : `${l.type}|${dir}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(byId.get(other));
   }
   if (!groups.size) return '<h4>연결</h4><p class="hint">아직 연결된 노트가 없어요.</p>';
+  // 요구사항을 볼 때 중요한 순서: 상위 → 하위 → 근거 회의 → 다룬 회의 → 관련 요구사항 → 나머지
+  const priority = ['parent|in', 'parent|out', 'evidence|out', 'meeting|in', 'related|both', 'topic|out'];
   const order = Object.keys(EDGES);
-  const keys = [...groups.keys()].sort((a, b) => order.indexOf(a.split('|')[0]) - order.indexOf(b.split('|')[0]) || (a.endsWith('out') ? -1 : 1));
+  const rank = (k) => { const i = priority.indexOf(k); return i >= 0 ? i : 100 + order.indexOf(k.split('|')[0]) * 2 + (k.endsWith('out') ? 0 : 1); };
+  const keys = [...groups.keys()].sort((a, b) => rank(a) - rank(b));
+  const item = (x) => `<div class="rel-item${x.aux ? ' aux' : ''}" data-id="${x.id}"><span class="dot" style="background:${TYPES[x.type]?.light}"></span><span class="rel-t">${esc(x.title)}</span>${x.aux ? '<span class="aux-tag">참고</span>' : ''}</div>`;
+  const idSort = (a, b) => String(a.props?.['요구사항ID'] || '~' + a.title).localeCompare(String(b.props?.['요구사항ID'] || '~' + b.title), 'en', { numeric: true });
   return '<h4>연결된 노트</h4>' + keys.map((k) => {
     const [type, dir] = k.split('|');
-    const items = groups.get(k).filter(Boolean).sort((a, b) => b.degree - a.degree);
-    return `<div class="rel-group"><div class="lab"><span class="ln" style="border-color:${darken(EDGES[type].color)}"></span>${EDGES[type][dir]} · ${items.length}</div>${items.map((x) => `<div class="rel-item" data-id="${x.id}"><span class="dot" style="background:${TYPES[x.type]?.light}"></span>${esc(x.title)}</div>`).join('')}</div>`;
+    const items = [...new Map(groups.get(k).filter(Boolean).map((x) => [x.id, x])).values()].sort(idSort);
+    const label = dir === 'both' ? EDGES[type].out : EDGES[type][dir];
+    const head = items.slice(0, 8).map(item).join('');
+    const rest = items.length > 8 ? `<details class="rel-more"><summary>${items.length - 8}개 더 보기</summary>${items.slice(8).map(item).join('')}</details>` : '';
+    return `<div class="rel-group"><div class="lab"><span class="ln" style="border-color:${darken(EDGES[type].color)}"></span>${label} · ${items.length}</div>${head}${rest}</div>`;
   }).join('');
 }
 
@@ -1000,6 +1147,9 @@ $('panel-body').addEventListener('click', (e) => {
   if (tg) { if (catDefs().some((d) => d.key === 'tag')) { setScheme('tag'); selectCat(tg.dataset.tag.split('/')); } return; }
   const more = e.target.closest('[data-more]');
   if (more) { listLimit += 200; renderList(); return; }
+  const cr = e.target.closest('[data-crumb]');
+  if (cr) { const path = JSON.parse(cr.dataset.crumb); if (applyCat('req', path)) { setHash('#/cat/' + ['req', ...path].map(encodeURIComponent).join('/')); if (!VIEWS[state.view].table) openList(); else toast(`표를 "${path.map(catLabel).join(' › ')}" 로 걸렀어요`); } return; }
+  if (e.target.closest('.copy-link')) { copyText(location.href).then((ok) => toast(ok ? '링크를 복사했어요' : '주소창의 링크를 복사해 주세요')); return; }
   const lf = e.target.closest('[data-lf]');
   if (lf) { listFilter[lf.dataset.lf] = lf.dataset.v; listLimit = 200; renderList(); return; }
   const srt = e.target.closest('[data-sort]');
@@ -1069,6 +1219,10 @@ function focusNode(id) {
 }
 
 new ResizeObserver(resize).observe($('stage'));
+// 오른쪽 패널이 열리면 표가 그만큼 비켜서 가려지지 않게 한다
+const fitTable = () => { const open = !$('panel').hidden && !isMobile(); $('table-view').style.right = open ? $('panel').offsetWidth + 'px' : '0'; };
+new MutationObserver(fitTable).observe($('panel'), { attributes: true, attributeFilter: ['hidden', 'class'] });
+window.addEventListener('resize', fitTable);
 // 그래프 라벨은 캔버스에 그려서, Pretendard 글자가 내려받아지면 다시 그려 준다
 document.fonts?.addEventListener?.('loadingdone', () => { if (!G) return; if (g3) style3d(); refresh(); });
 gate(load);

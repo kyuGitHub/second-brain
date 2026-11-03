@@ -28,7 +28,7 @@ const EDGES = {
   requires:       { ko: '전제',     color: '#b98cff', out: '전제 조건',            in: '이 노트를 전제로 하는 노트' },
   composes:       { ko: '구성',     color: '#9ad1ff', out: '구성 요소로 속한 곳',  in: '구성 요소' },
   parent:         { ko: '상위 요구사항', color: '#f3a712', out: '하위 요구사항',        in: '상위 요구사항' },
-  index:          { ko: '색인 포함', color: '#d6f24a', out: '색인에 담긴 노트',     in: '이 노트를 담은 색인' },
+  index:          { ko: '허브 포함', color: '#d6f24a', out: '허브에 담긴 노트',     in: '이 노트를 담은 허브' },
   meeting:        { ko: '회의에서 다룸', color: '#ffa057', out: '이 회의에서 다룬 노트', in: '이 노트를 다룬 회의' },
   evidence:       { ko: '근거 회의', color: '#ff8a5b', out: '근거가 된 회의',       in: '이 회의를 근거로 한 노트' },
   related:        { ko: '관련 요구사항', color: '#9a988f', out: '관련 요구사항',     in: '관련 요구사항(역방향)', dash: [1, 2] },
@@ -791,7 +791,7 @@ function openOverview({ back = false } = {}) {
       ${tile(notes.length, '전체 문서')}
       ${tile(reqs.length, '요구사항', `취소 ${cancelled.length}`)}
       ${tile(typeCount.get('회의록') || 0, '회의록', `인터뷰 ${(typeCount.get('인터뷰') || 0) + (typeCount.get('개발사인터뷰') || 0)}`)}
-      ${tile(typeCount.get('MOC') || 0, '색인(MOC)')}
+      ${tile(typeCount.get('MOC') || 0, TYPES.thesis.ko)}
     </div>
 
     <h3 class="ov-h">업무 영역별 요구사항</h3>

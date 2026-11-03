@@ -137,6 +137,7 @@ export function build({ quiet = false } = {}) {
   const propFields = cfg.propFields || [];
 
   const notes = [];
+  const hiddenNames = new Set(); // 사이트에서 뺀 노트 이름 (이 노트를 가리키는 링크는 깨진 링크로 세지 않음)
   for (const file of mdFiles) {
     const relPath = path.relative(cfg.vaultAbs, file).split(path.sep).join('/');
     if (include.length && !include.some((f) => relPath.startsWith(f))) continue; // 지정한 폴더만
@@ -151,6 +152,12 @@ export function build({ quiet = false } = {}) {
     if (cfg.publishMode === 'flag' && fm.publish !== true) continue;
     // 숨길 값 (예: 처리결과 = 숨김)
     if (Object.entries(hideWhere).some(([k, vals]) => asList(fm[k]).some((v) => vals.includes(v)))) continue;
+    // 숨김 규칙 (예: type 이 MOC 이고 파일 이름이 00_ 로 시작하는 자동 색인)
+    const baseName = path.basename(file, path.extname(file));
+    if ((cfg.hideRules || []).some((r) => (!r.type || String(fm.type || '').trim() === r.type) && (!r.titlePrefix || baseName.startsWith(r.titlePrefix)))) {
+      hiddenNames.add(baseName.toLowerCase()); hiddenNames.add(relPath.replace(/\.md$/i, '').toLowerCase());
+      continue;
+    }
 
     const rel = path.relative(cfg.vaultAbs, file).split(path.sep).join('/');
     const base = path.basename(file, path.extname(file));
@@ -255,7 +262,11 @@ export function build({ quiet = false } = {}) {
       const [target, alias] = inner.split('|');
       const label = (alias || target.split('#')[0] || target).trim();
       const t = resolve(target);
-      if (!t) { n.broken = (n.broken || 0) + 1; return `<span class="wl broken">${escapeHtml(label)}</span>`; }
+      if (!t) {
+        const key = stripLink(target).toLowerCase();
+        if (hiddenNames.has(key) || hiddenNames.has(key.split('/').pop())) return `<span class="wl hidden-note">${escapeHtml(label)}</span>`;
+        n.broken = (n.broken || 0) + 1; return `<span class="wl broken">${escapeHtml(label)}</span>`;
+      }
       if (!typedPairs.has(`${n.id}|${t.id}`)) addLink(n.id, t.id, 'mentions');
       return `<a class="wl" data-id="${t.id}">${escapeHtml(label)}</a>`;
     });

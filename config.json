@@ -44,7 +44,7 @@
     "교정로그": "reflective"
   },
   "typeLabels": {
-    "thesis": "색인(MOC)",
+    "thesis": "프로젝트 허브",
     "semantic": "주제·요구사항",
     "episodic": "회의·인터뷰",
     "procedural": "사업·보고",
@@ -142,6 +142,12 @@
     {
       "bothHave": "요구사항ID",
       "as": "related"
+    }
+  ],
+  "hideRules": [
+    {
+      "type": "MOC",
+      "titlePrefix": "00_"
     }
   ]
 }

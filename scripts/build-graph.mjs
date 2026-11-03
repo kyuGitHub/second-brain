@@ -170,9 +170,16 @@ export function build({ quiet = false } = {}) {
     const type = typeMap[rawType] || TYPE_ALIASES[rawType] || (cfg.folderTypes || {})[topFolder] || cfg.defaultType || 'semantic';
     // 카테고리: 분류 기준마다 [경로] 목록
     const cats = {};
+    // 보조 자료: 목록·그래프에는 안 보이고 검색·링크·통계에만 쓰는 노트
+    //  (주요 폴더 밖의 노트, 또는 auxRules 에 맞는 노트 — 예: type 이 MOC 인 색인)
+    const scopeName = folderParts[0] || '';
+    const primary = cfg.primaryScopes || [];
+    const aux = (primary.length && !primary.includes(scopeName)) ||
+      (cfg.auxRules || []).some((r) => (!r.type || docType === r.type) && (!r.titlePrefix || base.startsWith(r.titlePrefix)));
     for (const d of catDefs) {
+      if (aux || (d.scope && d.scope !== scopeName)) { cats[d.key] = []; continue; } // 이 분류에 속하지 않는 노트
       let paths;
-      if (d.field === '$folder') paths = [folderParts.length ? folderParts : ['(최상위)']];
+      if (d.field === '$folder') { const fp = d.scope ? folderParts.slice(1) : folderParts; paths = [fp.length ? fp : ['(최상위)']]; }
       else if (Array.isArray(d.field)) {
         const p = []; for (const f of d.field) { const v = asList(fm[f])[0]; if (!v) break; p.push(String(v)); }
         paths = [p];
@@ -188,7 +195,7 @@ export function build({ quiet = false } = {}) {
       title: String(fm.title || base),
       aliases: asList(fm.aliases || fm.alias),
       type,
-      folder: topFolder, docType, cats, props,
+      folder: topFolder, docType, cats, props, aux,
       topics: [...new Set(pick(fm, F.topics).map(stripLink).filter(Boolean))],
       tags: [...new Set(pick(fm, F.tags).map((t) => t.replace(/^#/, '')).filter(Boolean))],
       date: toDate(F.dates.map((k) => fm[k]).find(Boolean)) || toDate(stat.mtime),
@@ -313,7 +320,7 @@ export function build({ quiet = false } = {}) {
   const nodes = [
     ...notes.map((n) => ({
       id: n.id, title: n.title, type: n.type, folder: n.folder, docType: n.docType, cats: n.cats, props: n.props, topics: n.topics, tags: n.tags,
-      date: n.date, source: n.source, url: n.url, summary: n.summary, file: n.file, search: n.searchText, broken: n.broken || 0,
+      date: n.date, source: n.source, url: n.url, summary: n.summary, file: n.file, search: n.searchText, broken: n.broken || 0, aux: n.aux || undefined,
     })),
     ...topicNodes.values(),
   ];

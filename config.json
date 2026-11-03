@@ -1,6 +1,6 @@
 {
   "siteTitle": "Second Brain",
-  "siteSubtitle": "RIS 프로젝트 위키 지식 그래프",
+  "siteSubtitle": "RIS 프로젝트 요구사항 탐색",
   "sourcePath": "D:/RIS Project",
   "vaultPath": "./vault",
   "includeFolders": [
@@ -70,33 +70,19 @@
   },
   "categories": [
     {
-      "key": "type",
-      "label": "문서 유형",
-      "field": "type"
-    },
-    {
-      "key": "biz",
-      "label": "업무 영역",
-      "field": "업무"
-    },
-    {
-      "key": "domain",
-      "label": "대분류 › 중분류",
+      "key": "req",
+      "label": "요구사항",
+      "scope": "20_요구사항",
       "field": [
+        "업무",
         "대분류",
-        "중분류",
-        "소분류"
+        "중분류"
       ]
     },
     {
-      "key": "tag",
-      "label": "태그",
-      "field": "태그",
-      "split": "/"
-    },
-    {
-      "key": "folder",
-      "label": "폴더",
+      "key": "mtg",
+      "label": "회의록·인터뷰",
+      "scope": "10_회의록&인터뷰",
       "field": "$folder"
     }
   ],
@@ -144,10 +130,13 @@
       "as": "related"
     }
   ],
-  "hideRules": [
+  "primaryScopes": [
+    "10_회의록&인터뷰",
+    "20_요구사항"
+  ],
+  "auxRules": [
     {
-      "type": "MOC",
-      "titlePrefix": "00_"
+      "type": "MOC"
     }
   ]
 }

@@ -40,7 +40,7 @@ const PALETTE = ['#e4572e', '#f3a712', '#a8c256', '#29bf97', '#4fb3d9', '#6a7fdb
 const VIEWS = {
   brain:         { ko: '브레인 3D', light: false, three: true, hint: '전체 기억을 3D 별자리로 보여줘요. 드래그로 회전, 스크롤로 확대해요. 노드를 누르면 연결된 노트가 강조돼요.' },
   free:          { ko: '자유',     light: false, hint: '노드를 끌어서 배치를 바꿀 수 있어요. 스크롤로 확대해요. 노드를 누르면 연결된 노트가 강조돼요.' },
-  constellation: { ko: '별자리',   light: true,  hint: '핵심 주장을 원 위에 고정하고, 각 노트를 연결된 주장 쪽으로 끌어당겨요.' },
+  constellation: { ko: '별자리',   light: true,  hint: '중심 노드(대분류)를 원 위에 고정하고, 각 노트를 연결된 중심 쪽으로 끌어당겨요.' },
   hierarchy:     { ko: '계층',     light: true,  hint: '핵심 주장 · 노트 · 주제를 세 층으로 나눠 쌓아요.' },
   timeline:      { ko: '타임라인', light: true,  hint: '작성일 순서로 왼쪽(과거)에서 오른쪽(최근)으로 놓아요. 아래 막대로 기간을 좁혀요.' },
 };
@@ -95,8 +95,11 @@ async function load() {
   document.title = G.meta.title;
   $('site-title').textContent = G.meta.title;
   $('site-subtitle').textContent = G.meta.subtitle || '';
-  $('stat-nodes').textContent = G.nodes.length.toLocaleString();
-  $('stat-links').textContent = G.links.length.toLocaleString();
+  {
+    const auxIds = new Set(G.nodes.filter((n) => n.aux).map((n) => n.id));
+    $('stat-nodes').textContent = (G.nodes.length - auxIds.size).toLocaleString();
+    $('stat-links').textContent = G.links.filter((l) => !auxIds.has(l.source) && !auxIds.has(l.target)).length.toLocaleString();
+  }
   $('built-at').textContent = `마지막 갱신 ${new Date(G.meta.builtAt).toLocaleString('ko-KR')}`;
   F = { ...F, ...(G.meta.features || {}) };
   document.querySelectorAll('[data-feature]').forEach((el) => { el.hidden = !F[el.dataset.feature]; });
@@ -105,6 +108,7 @@ async function load() {
   for (const [k, v] of Object.entries(G.meta.typeLabels || {})) if (TYPES[k]) { TYPES[k].ko = v; TYPES[k].en = ''; }
   if (G.meta.typeLabels?.topic) { EDGES.topic.ko = G.meta.typeLabels.topic; EDGES.topic.out = G.meta.typeLabels.topic; EDGES.topic.in = `이 ${G.meta.typeLabels.topic}의 노트`; }
   LENSES.thesis = `${TYPES.thesis.ko}별`;
+  if (!G.nodes.some((n) => n.type === 'thesis' && !n.aux)) delete LENSES.thesis;
   LENSES.topic = `${TYPES.topic.ko}별`;
   if (!G.nodes.some((n) => n.source === 'external')) delete LENSES.source;
   if (!LENSES[state.lens]) state.lens = 'all';
@@ -135,7 +139,7 @@ async function load() {
   if (G.links.length > 3000 && !saved.edgesTouched) ['related', 'mentions'].forEach((k) => state.hiddenEdges.add(k));
 
   // 색인이 많으면 연결이 많은 상위 25개만 항상 이름을 보여준다 (나머지는 확대하면 보임)
-  const hubs = G.nodes.filter((n) => n.type === 'thesis').sort((a, b) => b.degree - a.degree);
+  const hubs = G.nodes.filter((n) => n.type === 'thesis' && !n.aux).sort((a, b) => b.degree - a.degree);
   labelAlways = new Set((hubs.length > 40 ? hubs.slice(0, 25) : hubs).map((n) => n.id));
 
   buildSidebar(topicCount);
@@ -164,7 +168,7 @@ function inRange(n) {
   const t = (dayNum(n.date) - dateDomain[0]) / (dateDomain[1] - dateDomain[0]);
   return t >= state.range[0] - 1e-9 && t <= state.range[1] + 1e-9;
 }
-const nodeVisible = (n) => !state.hiddenTypes.has(n.type) && (!state.catSet || state.catSet.has(n.id)) && (!filterOn() || matchesFilter(n)) && inRange(n);
+const nodeVisible = (n) => !n.aux && !state.hiddenTypes.has(n.type) && (!state.catSet || state.catSet.has(n.id)) && (!filterOn() || matchesFilter(n)) && inRange(n);
 const linkVisible = (l) => {
   // 숨긴 유형이라도 지금 고른(또는 마우스를 올린) 노드에 닿는 연결은 보여준다
   const focus = state.hover || state.selected;
@@ -330,18 +334,20 @@ function applyLayout2d() {
   g.d3Force('center')?.strength?.(1);
 
   if (state.view === 'constellation') {
-    const theses = nodes.filter((n) => n.type === 'thesis');
+    let theses = nodes.filter((n) => n.type === 'thesis' && !n.aux);
+    if (!theses.length) theses = nodes.filter((n) => n.type === 'topic');
+    const anchorIds = new Set(theses.map((n) => n.id));
     const R = ringRadius();
     theses.forEach((n, i) => { const a = (i / Math.max(1, theses.length)) * 2 * Math.PI - Math.PI / 2; n.fx = Math.cos(a) * R; n.fy = Math.sin(a) * R; n.x = n.fx; n.y = n.fy; });
     const anchor = new Map();
     for (const n of nodes) {
-      if (n.type === 'thesis') continue;
-      const ts = [...nbr.get(n.id)].map((id) => node2.get(id)).filter((x) => x?.type === 'thesis');
+      if (anchorIds.has(n.id)) continue;
+      const ts = [...nbr.get(n.id)].map((id) => node2.get(id)).filter((x) => x && anchorIds.has(x.id));
       if (ts.length) anchor.set(n.id, ts);
     }
     g.d3Force('pull', pull((n) => {
       const ts = anchor.get(n.id);
-      if (!ts) return n.type === 'thesis' ? null : { x: 0, y: 0 };
+      if (!ts) return anchorIds.has(n.id) ? null : { x: 0, y: 0 };
       return { x: ts.reduce((s, t) => s + t.fx, 0) / ts.length * 0.78, y: ts.reduce((s, t) => s + t.fy, 0) / ts.length * 0.78 };
     }, 0.08));
   } else if (state.view === 'hierarchy') {
@@ -480,7 +486,7 @@ function buildSidebar(topicCount) {
   initCategories();
 
   // 노드 유형
-  const typeCount = countBy(G.nodes.map((n) => n.type));
+  const typeCount = countBy(G.nodes.filter((n) => !n.aux).map((n) => n.type));
   $('type-legend').innerHTML = Object.entries(TYPES).filter(([k]) => typeCount.has(k)).map(([k, t]) =>
     `<li data-k="${k}"><span class="dot" style="background:${t.light}"></span><span class="name">${t.ko}<span class="en">${t.en}</span></span><span class="n">${typeCount.get(k)}</span></li>`).join('');
   $('type-legend').onclick = (e) => toggleLegend(e, state.hiddenTypes);
@@ -575,10 +581,9 @@ function initCategories() {
   const defs = catDefs();
   if (!defs.length) { document.querySelectorAll('[data-feature="categories"]').forEach((el) => { if (el.querySelector('#cat-tree')) el.hidden = true; }); return; }
   if (!defs.some((d) => d.key === state.scheme)) state.scheme = defs[0].key;
-  const sel = $('cat-scheme');
-  sel.innerHTML = defs.map((d) => `<option value="${esc(d.key)}">${esc(d.label)}</option>`).join('');
-  sel.value = state.scheme;
-  sel.onchange = () => { setScheme(sel.value); clearCat(); };
+  const tabs = $('cat-scheme');
+  tabs.innerHTML = defs.map((d) => `<button type="button" role="tab" data-k="${esc(d.key)}">${esc(d.label)}</button>`).join('');
+  tabs.onclick = (e) => { const b = e.target.closest('button'); if (!b || b.dataset.k === state.scheme) return; setScheme(b.dataset.k); clearCat(); if (state.panel?.kind === 'list') closePanel(); };
   $('cat-clear').onclick = () => { clearCat(); if (state.panel?.kind === 'list') closePanel(); };
   $('cat-tree').onclick = (e) => {
     const row = e.target.closest('.ct-row'); if (!row) return;
@@ -595,12 +600,12 @@ function initCategories() {
     const row = e.target.closest('.ct-row'); if (!row) return;
     e.preventDefault(); row.click();
   };
-  buildTree();
+  setScheme(state.scheme);
 }
 
 function setScheme(key) {
   state.scheme = key; savePrefs();
-  $('cat-scheme').value = key;
+  $('cat-scheme').querySelectorAll('button').forEach((b) => { b.classList.toggle('on', b.dataset.k === key); b.setAttribute('aria-selected', String(b.dataset.k === key)); });
   buildTree();
 }
 
@@ -643,7 +648,7 @@ function renderTree() {
       ${kids && open ? `<div class="ct-kids" role="group">${rows(c, p, depth + 1)}</div>` : ''}
     </div>`;
   }).join('');
-  $('cat-tree').innerHTML = `<div class="ct-row ct-all${selKey ? '' : ' on'}" tabindex="0" data-path="[]"><span class="ct-sp"></span><span class="ct-name">전체 문서</span><span class="ct-n">${catTree.ids.size}</span></div>` + rows(catTree, [], 0);
+  $('cat-tree').innerHTML = `<div class="ct-row ct-all${selKey ? '' : ' on'}" tabindex="0" data-path="[]"><span class="ct-sp"></span><span class="ct-name">전체 ${esc(catDefs().find((d) => d.key === state.scheme)?.label || '문서')}</span><span class="ct-n">${catTree.ids.size}</span></div>` + rows(catTree, [], 0);
   $('cat-clear').hidden = !state.cat;
 }
 
@@ -675,7 +680,7 @@ function clearCat() {
 }
 
 /* ───────────── 문서 목록 (카테고리별로 글 보기) ───────────── */
-let listLimit = 200, listSort = 'name', listQuery = '';
+let listLimit = 200, listSort = 'id', listQuery = '', listFilter = { 결과: 'all', 유형: 'all' };
 let listCtx = null; // { eyebrow, title, ids }
 function openList({ back = false } = {}) {
   if (!state.cat || !F.reader) return;
@@ -697,14 +702,16 @@ function showListPanel(entry, back) {
   $('panel-back').disabled = !state.stack.length;
   listQuery = '';
   listLimit = 200;
+  listFilter = { 결과: 'all', 유형: 'all' };
   $('panel-body').innerHTML = `
     <div class="p-type">${esc(listCtx.eyebrow)}</div>
     <h2 class="p-title">${listCtx.titleHtml}</h2>
     <div class="list-tools">
       <input type="search" id="list-q" placeholder="이 목록에서 찾기" autocomplete="off" />
       <div class="seg list-sort" role="group" aria-label="정렬">
-        <button type="button" data-sort="name">이름순</button><button type="button" data-sort="recent">최근 수정순</button><button type="button" data-sort="links">연결 많은 순</button>
+        <button type="button" data-sort="id">ID순</button><button type="button" data-sort="name">이름순</button><button type="button" data-sort="links">연결 많은 순</button>
       </div>
+      <div class="list-filters" id="list-filters"></div>
     </div>
     <div id="list-box"></div>`;
   $('list-q').oninput = (e) => { listQuery = e.target.value.trim().toLowerCase(); listLimit = 200; renderList(); };
@@ -715,8 +722,24 @@ function showListPanel(entry, back) {
 function renderList() {
   const box = $('list-box'); if (!box || !listCtx) return;
   let items = listCtx.ids.map((id) => byId.get(id)).filter(Boolean);
+  // 요구사항이 들어 있는 목록이면 처리결과·개발유형 필터를 보여준다
+  const fbox = $('list-filters');
+  const reqItems = items.filter((n) => n.props?.['요구사항ID']);
+  if (fbox) {
+    if (reqItems.length) {
+      const cnt = (f) => countBy(reqItems.map(f));
+      const res = cnt((n) => (n.props['처리결과'] === '취소선' ? '취소' : '유지'));
+      const dev = cnt((n) => n.props['개발유형'] || '미지정');
+      const chips = (group, map) => ['all', ...map.keys()].map((k) => `<button type="button" class="chip${listFilter[group] === k ? ' on' : ''}" data-lf="${group}" data-v="${esc(k)}">${k === 'all' ? '전체' : esc(k)}${k === 'all' ? '' : `<span class="n">${map.get(k)}</span>`}</button>`).join('');
+      fbox.innerHTML = `<div class="lf-row"><span class="lf-l">처리결과</span>${chips('결과', res)}</div><div class="lf-row"><span class="lf-l">개발유형</span>${chips('유형', dev)}</div>`;
+    } else fbox.innerHTML = '';
+  }
+  if (listFilter.결과 !== 'all') items = items.filter((n) => (n.props?.['처리결과'] === '취소선' ? '취소' : '유지') === listFilter.결과 && n.props?.['요구사항ID']);
+  if (listFilter.유형 !== 'all') items = items.filter((n) => (n.props?.['개발유형'] || '미지정') === listFilter.유형 && n.props?.['요구사항ID']);
   if (listQuery) items = items.filter((n) => (n.title + ' ' + Object.values(n.props || {}).join(' ')).toLowerCase().includes(listQuery));
+  const idKey = (n) => n.props?.['요구사항ID'] || '\uffff' + n.title;
   const cmp = {
+    id: (a, b) => idKey(a).localeCompare(idKey(b), 'en', { numeric: true }),
     name: (a, b) => a.title.localeCompare(b.title, 'ko', { numeric: true }),
     recent: (a, b) => String(b.date || '').localeCompare(String(a.date || '')) || a.title.localeCompare(b.title, 'ko'),
     links: (a, b) => b.degree - a.degree || a.title.localeCompare(b.title, 'ko'),
@@ -726,7 +749,9 @@ function renderList() {
   const shown = items.slice(0, listLimit);
   box.innerHTML = `<div class="list-count">문서 ${items.length.toLocaleString()}개</div>`
     + (items.length ? shown.map((n) => {
-      const sub = [n.docType, n.props?.['요구사항ID'], n.props?.['업무'], n.date].filter(Boolean).map(esc).join(' · ');
+      const sub = (n.props?.['요구사항ID']
+        ? [n.props['요구사항ID'], n.props['대분류'], n.props['중분류'], n.props['개발유형']]
+        : [n.docType, n.date]).filter(Boolean).map(esc).join(' · ');
       const cancel = n.props?.['처리결과'] === '취소선';
       return `<button type="button" class="li-item${cancel ? ' cancel' : ''}" data-id="${n.id}">
         <span class="dot" style="background:${TYPES[n.type]?.light}"></span>
@@ -754,8 +779,10 @@ function openOverview({ back = false } = {}) {
   $('panel').hidden = false;
   $('panel-back').disabled = !state.stack.length;
 
-  const notes = G.nodes.filter((n) => n.type !== 'topic');
+  const notes = G.nodes.filter((n) => n.type !== 'topic' && !n.aux);
   const reqs = notes.filter((n) => n.props?.['요구사항ID']);
+  const meetings = notes.filter((n) => n.cats?.mtg?.length);
+  const devCount = countBy(reqs.map((n) => n.props['개발유형'] || '미지정'));
   const linkTypesOf = new Map(notes.map((n) => [n.id, new Set()]));
   for (const l of G.links) {
     if (l.type === 'topic') continue;
@@ -769,11 +796,11 @@ function openOverview({ back = false } = {}) {
   const orphans = notes.filter((n) => !linkTypesOf.get(n.id).size);
   const brokenNotes = notes.filter((n) => n.broken > 0);
   const brokenSum = brokenNotes.reduce((a, n) => a + n.broken, 0);
-  const noDomain = notes.filter((n) => (n.cats?.domain || []).some((p) => p[0] === '(미분류)'));
+  const noDomain = reqs.filter((n) => !n.props?.['대분류']);
   const cancelled = reqs.filter((n) => n.props?.['처리결과'] === '취소선');
   const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
 
-  const bizCount = countBy(reqs.flatMap((n) => (n.cats?.biz || []).map((p) => p[0])));
+  const bizCount = countBy(reqs.flatMap((n) => (n.cats?.req || []).map((p) => p[0])));
   const maxBiz = Math.max(1, ...bizCount.values());
   const typeCount = countBy(notes.map((n) => n.docType || '(없음)'));
   const recent = notes.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || a.title.localeCompare(b.title, 'ko')).slice(0, 8);
@@ -788,10 +815,10 @@ function openOverview({ back = false } = {}) {
     <div class="p-type">개요 · 마지막 갱신 ${new Date(G.meta.builtAt).toLocaleString('ko-KR')}</div>
     <h2 class="p-title">${esc(G.meta.subtitle || G.meta.title)}</h2>
     <div class="ov-tiles">
-      ${tile(notes.length, '전체 문서')}
-      ${tile(reqs.length, '요구사항', `취소 ${cancelled.length}`)}
-      ${tile(typeCount.get('회의록') || 0, '회의록', `인터뷰 ${(typeCount.get('인터뷰') || 0) + (typeCount.get('개발사인터뷰') || 0)}`)}
-      ${tile(typeCount.get('MOC') || 0, TYPES.thesis.ko)}
+      ${tile(reqs.length, '요구사항', `유지 ${reqs.length - cancelled.length} · 취소 ${cancelled.length}`)}
+      ${tile(meetings.length, '회의록·인터뷰', `업무회의 ${typeCount.get('회의록') || 0} · 인터뷰 ${(typeCount.get('인터뷰') || 0) + (typeCount.get('개발사인터뷰') || 0)}`)}
+      ${tile(devCount.get('신규') || 0, '신규 개발')}
+      ${tile((devCount.get('기존변경') || 0) + (devCount.get('기존유지') || 0), '기존 변경·유지', `개발유형 미지정 ${devCount.get('미지정') || 0}`)}
     </div>
 
     <h3 class="ov-h">업무 영역별 요구사항</h3>
@@ -807,7 +834,7 @@ function openOverview({ back = false } = {}) {
     <h3 class="ov-h">데이터 점검 <span class="ov-h-s">눌러서 목록 보기</span></h3>
     <div class="ov-checks">
       ${check('reqNoMeeting', '회의 근거가 없는 요구사항', reqNoMeeting.length, reqs.length, '회의록·인터뷰와 연결되지 않음')}
-      ${check('noDomain', '대분류가 비어 있는 문서', noDomain.length, notes.length, '카테고리에서 (미분류)로 보임')}
+      ${check('noDomain', '대분류가 비어 있는 요구사항', noDomain.length, reqs.length, '카테고리에서 업무 바로 아래에 보임')}
       ${check('brokenNotes', '깨진 링크가 있는 문서', brokenNotes.length, 0, `없는 노트를 가리키는 링크 ${brokenSum.toLocaleString()}개`)}
       ${check('orphans', '아무 연결도 없는 문서', orphans.length, 0, '그래프에서 혼자 떨어져 있음')}
       ${check('cancelled', '취소된 요구사항', cancelled.length, 0, '처리결과: 취소선')}
@@ -823,13 +850,13 @@ function openOverview({ back = false } = {}) {
 $('panel-body').addEventListener('click', (e) => {
   const ov = e.target.closest('[data-ov]');
   if (ov) {
-    const labels = { reqNoMeeting: '회의 근거가 없는 요구사항', noDomain: '대분류가 비어 있는 문서', brokenNotes: '깨진 링크가 있는 문서', orphans: '아무 연결도 없는 문서', cancelled: '취소된 요구사항' };
+    const labels = { reqNoMeeting: '회의 근거가 없는 요구사항', noDomain: '대분류가 비어 있는 요구사항', brokenNotes: '깨진 링크가 있는 문서', orphans: '아무 연결도 없는 문서', cancelled: '취소된 요구사항' };
     const list = window.__ov?.[ov.dataset.ov] || [];
     openCustomList('데이터 점검', labels[ov.dataset.ov], list.map((n) => n.id));
     return;
   }
   const biz = e.target.closest('[data-biz]');
-  if (biz && catDefs().some((d) => d.key === 'biz')) { if (applyCat('biz', [biz.dataset.biz])) openList(); }
+  if (biz && catDefs().some((d) => d.key === 'req')) { if (applyCat('req', [biz.dataset.biz])) openList(); }
 });
 
 /* ───────────── 툴팁 ───────────── */
@@ -864,9 +891,16 @@ sIn.addEventListener('input', () => {
   const words = q.split(/\s+/);
   sList = G.nodes.map((n) => {
     const title = n.title.toLowerCase(), body = (n.search || '').toLowerCase();
-    if (!words.every((w) => title.includes(w) || body.includes(w) || n.tags.some((t) => t.toLowerCase().includes(w)))) return null;
+    const rid = String(n.props?.['요구사항ID'] || '').toLowerCase();
+    const rname = String(n.props?.['요구정의명'] || '').toLowerCase();
+    if (!words.every((w) => title.includes(w) || rid.includes(w) || rname.includes(w) || body.includes(w) || n.tags.some((t) => t.toLowerCase().includes(w)))) return null;
     let score = 0;
-    for (const w of words) score += title.startsWith(w) ? 6 : title.includes(w) ? 4 : 1;
+    for (const w of words) {
+      if (rid && (rid === w || rid.endsWith('-' + w))) score += 20;   // "REQ-AP-508" 또는 "508"
+      else if (rid.includes(w)) score += 10;
+      score += title.startsWith(w) ? 6 : title.includes(w) ? 4 : rname.includes(w) ? 3 : 1;
+    }
+    if (rid) score += 1;
     if (n.type === 'thesis') score += 1;
     return { n, score };
   }).filter(Boolean).sort((a, b) => b.score - a.score || b.n.degree - a.n.degree).slice(0, 10).map((x) => x.n);
@@ -875,7 +909,7 @@ sIn.addEventListener('input', () => {
 function renderSearch(q) {
   sOut.hidden = false;
   if (!sList.length) { sOut.innerHTML = `<li class="none">“${esc(q)}” 와 맞는 노트가 없어요</li>`; return; }
-  sOut.innerHTML = sList.map((n, i) => `<li data-id="${n.id}" class="${i === sIdx ? 'active' : ''}"><span class="dot" style="background:${TYPES[n.type]?.light}"></span><span><span class="t">${esc(n.title)}</span><span class="s">${TYPES[n.type]?.ko || ''}${n.summary ? ' · ' + esc(n.summary.slice(0, 80)) : ''}</span></span></li>`).join('');
+  sOut.innerHTML = sList.map((n, i) => `<li data-id="${n.id}" class="${i === sIdx ? 'active' : ''}"><span class="dot" style="background:${TYPES[n.type]?.light}"></span><span><span class="t">${esc(n.title)}</span><span class="s">${n.aux ? '<span class="aux-tag">참고 자료</span> ' : ''}${n.props?.['요구사항ID'] ? [n.props['업무'], n.props['대분류'], n.props['중분류'], n.props['처리결과'] === '취소선' ? '취소' : ''].filter(Boolean).map(esc).join(' › ') : (TYPES[n.type]?.ko || '') + (n.summary ? ' · ' + esc(n.summary.slice(0, 80)) : '')}</span></span></li>`).join('');
 }
 sIn.addEventListener('keydown', (e) => {
   if (sOut.hidden || !sList.length) { if (e.key === 'Escape') sIn.blur(); return; }
@@ -966,6 +1000,8 @@ $('panel-body').addEventListener('click', (e) => {
   if (tg) { if (catDefs().some((d) => d.key === 'tag')) { setScheme('tag'); selectCat(tg.dataset.tag.split('/')); } return; }
   const more = e.target.closest('[data-more]');
   if (more) { listLimit += 200; renderList(); return; }
+  const lf = e.target.closest('[data-lf]');
+  if (lf) { listFilter[lf.dataset.lf] = lf.dataset.v; listLimit = 200; renderList(); return; }
   const srt = e.target.closest('[data-sort]');
   if (srt) { listSort = srt.dataset.sort; renderList(); }
 });

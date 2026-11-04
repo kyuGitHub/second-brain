@@ -8,7 +8,7 @@
 import Anthropic from 'npm:@anthropic-ai/sdk@1.4.0';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 
-const MODEL = 'claude-opus-5-5';
+const MODEL = 'claude-sonnet-5-5'; // 빠르고 저렴한 모델
 const PER_HOUR = 30; // 한 사람이 한 시간에 할 수 있는 질문 수
 const MAX_Q = 1000, MAX_DOCS = 16, MAX_DOC = 6000, MAX_HISTORY = 4;
 

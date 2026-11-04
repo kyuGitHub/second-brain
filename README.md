@@ -41,7 +41,7 @@ GitHub (프로그램만) ──▶ Vercel 자동 배포 ──▶ 접속 → 로
 1. SQL Editor 에서 `supabase/ask.sql` 실행 (질문·답 기록 표, 검색어 기록)
 2. **Edge Functions → Deploy a new function → Via Editor** → 이름 `ask`, `supabase/functions/ask/index.ts` 내용 붙여넣기 → Deploy
 3. **Edge Functions → Secrets** 에 `ANTHROPIC_API_KEY` (Claude API 키) 추가 — 키는 서버에만 있고 브라우저·GitHub 로 나가지 않아요
-- 동작: 브라우저가 질문과 관련된 문서를 최대 10개 고름 → `ask` 함수가 로그인·명단·사용량(1인 1시간 30회)을 확인 → Claude(`claude-opus-5-5`, 빠른 답 설정)가 그 문서만 근거로 답 → 질문·답·근거 문서·토큰 수를 `brain_questions` 에 저장
+- 동작: 브라우저가 질문과 관련된 문서를 최대 10개 고름 → `ask` 함수가 로그인·명단·사용량(1인 1시간 30회)을 확인 → Claude(`claude-sonnet-5-5`, 빠른 답 설정)가 그 문서만 근거로 답 → 질문·답·근거 문서·토큰 수를 `brain_questions` 에 저장
 - 질문 기록은 본인만 볼 수 있고, 개요의 사용 현황에는 질문 수 합계만 나와요.
 
 ## 2. 웹사이트

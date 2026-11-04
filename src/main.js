@@ -2,7 +2,7 @@
 import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
 import ForceGraph from 'force-graph';
 import { gate } from './auth.js';
-import { loadGraph, loadNoteHtml, loadHistory, LOCAL } from './data.js';
+import { loadGraph, loadNoteHtml, loadHistory, loadSearch, LOCAL } from './data.js';
 import ForceGraph3D from '3d-force-graph';
 import SpriteText from 'three-spritetext';
 import * as THREE from 'three';
@@ -776,7 +776,7 @@ function clearCat() {
 }
 
 /* ───────────── 문서 목록 (카테고리별로 글 보기) ───────────── */
-let listLimit = 200, listSort = 'id', listQuery = '', listFilter = { 결과: 'all', 유형: 'all' };
+let listLimit = 200, listSort = 'id', listQuery = '', listFilter = { 수준: 'all', 결과: 'all', 유형: 'all' };
 let listCtx = null; // { eyebrow, title, ids }
 function openList({ back = false } = {}) {
   if (!state.cat || !F.reader) return;
@@ -798,7 +798,7 @@ function showListPanel(entry, back) {
   $('panel-back').disabled = !state.stack.length;
   listQuery = '';
   listLimit = 200;
-  listFilter = { 결과: 'all', 유형: 'all' };
+  listFilter = { 수준: 'all', 결과: 'all', 유형: 'all' };
   $('panel-body').innerHTML = `
     <div class="p-type">${esc(listCtx.eyebrow)}</div>
     <h2 class="p-title">${listCtx.titleHtml}</h2>
@@ -826,10 +826,12 @@ function renderList() {
       const cnt = (f) => countBy(reqItems.map(f));
       const res = cnt((n) => (n.props['처리결과'] === '취소선' ? '취소' : '유지'));
       const dev = cnt((n) => n.props['개발유형'] || '미지정');
+      const lv = cnt((n) => n.lv || '세부');
       const chips = (group, map) => ['all', ...map.keys()].map((k) => `<button type="button" class="chip${listFilter[group] === k ? ' on' : ''}" data-lf="${group}" data-v="${esc(k)}">${k === 'all' ? '전체' : esc(k)}${k === 'all' ? '' : `<span class="n">${map.get(k)}</span>`}</button>`).join('');
-      fbox.innerHTML = `<div class="lf-row"><span class="lf-l">처리결과</span>${chips('결과', res)}</div><div class="lf-row"><span class="lf-l">개발유형</span>${chips('유형', dev)}</div>`;
+      fbox.innerHTML = (lv.size > 1 ? `<div class="lf-row"><span class="lf-l">수준</span>${chips('수준', lv)}</div>` : '') + `<div class="lf-row"><span class="lf-l">처리결과</span>${chips('결과', res)}</div><div class="lf-row"><span class="lf-l">개발유형</span>${chips('유형', dev)}</div>`;
     } else fbox.innerHTML = '';
   }
+  if (listFilter.수준 !== 'all') items = items.filter((n) => n.props?.['요구사항ID'] && (n.lv || '세부') === listFilter.수준);
   if (listFilter.결과 !== 'all') items = items.filter((n) => (n.props?.['처리결과'] === '취소선' ? '취소' : '유지') === listFilter.결과 && n.props?.['요구사항ID']);
   if (listFilter.유형 !== 'all') items = items.filter((n) => (n.props?.['개발유형'] || '미지정') === listFilter.유형 && n.props?.['요구사항ID']);
   if (listQuery) items = items.filter((n) => (n.title + ' ' + Object.values(n.props || {}).join(' ')).toLowerCase().includes(listQuery));
@@ -862,6 +864,7 @@ function renderList() {
 function propsHtml(n) {
   const entries = Object.entries(n.props || {}).filter(([k]) => k !== 'updated');
   if (!entries.length) return '';
+  if (n.lv) entries.unshift(['수준', n.lv === '상위' ? '상위 요구사항 (RFP)' : '세부 요구사항']);
   return `<dl class="props">${entries.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>`;
 }
 
@@ -968,12 +971,14 @@ $('panel-body').addEventListener('click', (e) => {
 
 /* ───────────── 변경 이력 ───────────── */
 const fmtWhen = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }); };
+// 한 업로드에서 상위 요구사항(RFP)이 추가·변경·삭제된 수
+const topCount = (h) => [...(h.added || []), ...(h.changed || []), ...(h.removed || [])].filter((c) => c.lv === '상위').length;
 function changesOverviewHtml() {
   if (!HISTORY.length) return `<h3 class="ov-h">최근 변경</h3><p class="hint" style="margin:0">아직 변경 이력이 없어요. 다음 업로드부터 추가·변경·삭제가 기록돼요.</p>`;
   const rows = HISTORY.slice(0, 6).map((h, i) => h.baseline
     ? `<div class="hist-row base"><span class="hist-when">${esc(fmtWhen(h.at))}</span><span class="hist-base">기록 시작 · 문서 ${(h.total || 0).toLocaleString()}개</span></div>`
     : `<button type="button" class="hist-row" data-hist="${i}" ${h.added.length + h.changed.length ? '' : 'disabled'}><span class="hist-when">${esc(fmtWhen(h.at))}</span>
-        <span class="hist-counts"><span class="c-add">+${h.added.length}</span><span class="c-chg">~${h.changed.length}</span><span class="c-del">−${h.removed.length}</span></span></button>`).join('');
+        <span class="hist-counts">${topCount(h) ? `<span class="c-top" title="상위 요구사항(RFP) 변경">상위 ${topCount(h)}</span>` : ''}<span class="c-add">+${h.added.length}</span><span class="c-chg">~${h.changed.length}</span><span class="c-del">−${h.removed.length}</span></span></button>`).join('');
   return `<h3 class="ov-h">최근 변경 <span class="ov-h-s">업로드별 · 추가 / 변경 / 삭제</span></h3><div class="hist-list">${rows}</div>`;
 }
 function historyHtml(n) {
@@ -996,6 +1001,7 @@ function historyHtml(n) {
 /* ───────────── 요구사항 표 ───────────── */
 const T_COLS = [
   { k: 'id', label: '요구사항 ID', get: (n) => n.props?.['요구사항ID'] || '' },
+  { k: 'lv', label: '수준', get: (n) => n.lv || '' },
   { k: 'name', label: '요구사항명', get: (n) => n.props?.['요구정의명'] || n.title.replace(/^REQ-[A-Z]+-\d+\s*/, '') },
   { k: 'biz', label: '업무', get: (n) => n.props?.['업무'] || '' },
   { k: 'd1', label: '대분류', get: (n) => n.props?.['대분류'] || '' },
@@ -1005,15 +1011,17 @@ const T_COLS = [
   { k: 'links', label: '연결', get: (n) => n.degree, num: true },
   { k: 'chg', label: '최근 변경', get: (n) => (lastChange.get(keyOf(n))?.at || '').slice(0, 10) },
 ];
-let tSort = { k: 'id', dir: 1 }, tQuery = '', tRes = 'all', tDev = 'all', tChg = 'all';
+const col = (k) => T_COLS.find((c) => c.k === k);
+let tSort = { k: 'id', dir: 1 }, tQuery = '', tRes = 'all', tDev = 'all', tChg = 'all', tLv = 'all';
 function tableRows() {
   let rows = G.nodes.filter((n) => !n.aux && n.props?.['요구사항ID'] && (!state.catSet || state.catSet.has(n.id)));
-  if (tRes !== 'all') rows = rows.filter((n) => T_COLS[6].get(n) === tRes);
-  if (tDev !== 'all') rows = rows.filter((n) => (T_COLS[5].get(n) || '미지정') === tDev);
+  if (tLv !== 'all') rows = rows.filter((n) => (n.lv || '') === tLv);
+  if (tRes !== 'all') rows = rows.filter((n) => col('res').get(n) === tRes);
+  if (tDev !== 'all') rows = rows.filter((n) => (col('dev').get(n) || '미지정') === tDev);
   if (tChg !== 'all') { const since = new Date(Date.now() - Number(tChg) * 864e5).toISOString(); rows = rows.filter((n) => (lastChange.get(keyOf(n))?.at || '') >= since); }
-  if (tQuery) rows = rows.filter((n) => (n.title + ' ' + Object.values(n.props || {}).join(' ') + ' ' + (n.search || '')).toLowerCase().includes(tQuery));
-  const col = T_COLS.find((c) => c.k === tSort.k);
-  rows.sort((a, b) => (col.num ? col.get(a) - col.get(b) : String(col.get(a)).localeCompare(String(col.get(b)), 'ko', { numeric: true })) * tSort.dir
+  if (tQuery) rows = rows.filter((n) => (n.title + ' ' + Object.values(n.props || {}).join(' ') + ' ' + bodyText(n)).includes(tQuery));
+  const sc = col(tSort.k);
+  rows.sort((a, b) => (sc.num ? sc.get(a) - sc.get(b) : String(sc.get(a)).localeCompare(String(sc.get(b)), 'ko', { numeric: true })) * tSort.dir
     || T_COLS[0].get(a).localeCompare(T_COLS[0].get(b), 'en', { numeric: true }));
   return rows;
 }
@@ -1023,13 +1031,14 @@ function renderTable() {
   const scope = state.cat ? state.cat.path.map(catLabel).join(' › ') : '전체 요구사항';
   const rows = tableRows();
   const opt = (v, cur, label) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(label)}</option>`;
-  const devs = [...countBy(all.map((n) => T_COLS[5].get(n) || '미지정')).keys()];
+  const devs = [...countBy(all.map((n) => col('dev').get(n) || '미지정')).keys()];
   const focusedQ = document.activeElement?.id === 't-q';
   box.innerHTML = `
     <div class="t-head">
       <div><div class="t-eyebrow">요구사항 표${state.cat && state.cat.scheme !== 'req' ? ' · 회의록 분류는 표에 적용되지 않아요' : ''}</div><h2 class="t-title">${esc(scope)}</h2></div>
       <div class="t-tools">
         <input type="search" id="t-q" placeholder="표 안에서 찾기" value="${esc(tQuery)}" autocomplete="off" />
+        <select id="t-lv" aria-label="수준">${opt('all', tLv, '수준 전체')}${opt('상위', tLv, '상위 (RFP)')}${opt('세부', tLv, '세부')}</select>
         <select id="t-res" aria-label="처리결과">${opt('all', tRes, '처리결과 전체')}${opt('유지', tRes, '유지')}${opt('취소', tRes, '취소')}</select>
         <select id="t-dev" aria-label="개발유형">${opt('all', tDev, '개발유형 전체')}${devs.map((d) => opt(d, tDev, d)).join('')}</select>
         <select id="t-chg" aria-label="최근 변경">${opt('all', tChg, '변경 전체')}${opt('7', tChg, '최근 7일 변경')}${opt('30', tChg, '최근 30일 변경')}</select>
@@ -1039,11 +1048,13 @@ function renderTable() {
     <div class="t-count">${rows.length.toLocaleString()}건${rows.length !== all.length ? ` / 전체 ${all.length.toLocaleString()}건` : ''}</div>
     <div class="t-wrap"><table class="req-table">
       <thead><tr>${T_COLS.map((c) => `<th data-k="${c.k}" class="${c.num ? 'num' : ''}" aria-sort="${tSort.k === c.k ? (tSort.dir > 0 ? 'ascending' : 'descending') : 'none'}">${c.label}${tSort.k === c.k ? (tSort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead>
-      <tbody>${rows.map((n) => `<tr data-id="${n.id}" class="${T_COLS[6].get(n) === '취소' ? 'cancel' : ''}${state.selected === n.id ? ' on' : ''}" tabindex="0">${T_COLS.map((c) => `<td class="${c.num ? 'num' : ''} c-${c.k}">${esc(c.get(n))}</td>`).join('')}</tr>`).join('')}</tbody>
+      <tbody>${rows.map((n) => `<tr data-id="${n.id}" class="${col('res').get(n) === '취소' ? 'cancel' : ''}${n.lv === '상위' ? ' top' : ''}${state.selected === n.id ? ' on' : ''}" tabindex="0">${T_COLS.map((c) => `<td class="${c.num ? 'num' : ''} c-${c.k}">${esc(c.get(n))}</td>`).join('')}</tr>`).join('')}</tbody>
     </table>${rows.length ? '' : '<p class="hint" style="padding:16px">조건에 맞는 요구사항이 없어요.</p>'}</div>`;
   const q = $('t-q');
   q.oninput = () => { tQuery = q.value.trim().toLowerCase(); clearTimeout(q._t); q._t = setTimeout(renderTable, 180); };
   if (focusedQ) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+  $('t-lv').onchange = (e) => { tLv = e.target.value; renderTable(); };
+  q.onfocus = () => ensureFullText(() => tQuery && renderTable());
   $('t-res').onchange = (e) => { tRes = e.target.value; renderTable(); };
   $('t-dev').onchange = (e) => { tDev = e.target.value; renderTable(); };
   $('t-chg').onchange = (e) => { tChg = e.target.value; renderTable(); };
@@ -1137,14 +1148,39 @@ function placeTip(tip) {
 }
 
 /* ───────────── 검색 ───────────── */
+// 본문 전체(search.json)는 검색창을 처음 누를 때 받는다. 받기 전에는 그래프에 든 짧은 글자로 찾는다
+let FULL = null, fullLoading = false;
+const fullLc = new Map();
+function bodyText(n) {
+  if (!FULL) return (n.search || '').toLowerCase();
+  let t = fullLc.get(n.id);
+  if (t === undefined) { t = (n.search + ' ' + (FULL[n.id] || '')).toLowerCase(); fullLc.set(n.id, t); }
+  return t;
+}
+function ensureFullText(after) {
+  if (FULL || fullLoading) return;
+  fullLoading = true;
+  loadSearch().then((f) => { if (f) { FULL = f; fullLc.clear(); after?.(); } }).finally(() => { fullLoading = false; });
+}
+// 본문에서 찾은 곳 앞뒤 글자를 보여준다
+function snippet(n, w) {
+  const raw = FULL?.[n.id] || n.search || '';
+  const i = raw.toLowerCase().indexOf(w);
+  if (i < 0) return '';
+  const a = Math.max(0, i - 28), b = Math.min(raw.length, i + w.length + 50);
+  let out = esc(raw.slice(a, b));
+  for (const x of sQuery.split(/\s+/).filter((x) => x.length > 0 && x !== 'mark')) out = out.replace(new RegExp(esc(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), (m) => `<mark>${m}</mark>`);
+  return (a ? '…' : '') + out + (b < raw.length ? '…' : '');
+}
 const sIn = $('search'), sOut = $('search-results');
-let sIdx = 0, sList = [];
+let sIdx = 0, sList = [], sQuery = '';
+sIn.addEventListener('focus', () => ensureFullText(() => sIn.value.trim() && sIn.dispatchEvent(new Event('input'))));
 sIn.addEventListener('input', () => {
   const q = sIn.value.trim().toLowerCase();
   if (!q || !G) { sOut.hidden = true; return; }
   const words = q.split(/\s+/);
   sList = G.nodes.map((n) => {
-    const title = n.title.toLowerCase(), body = (n.search || '').toLowerCase();
+    const title = n.title.toLowerCase(), body = bodyText(n);
     const rid = String(n.props?.['요구사항ID'] || '').toLowerCase();
     const rname = String(n.props?.['요구정의명'] || '').toLowerCase();
     if (!words.every((w) => title.includes(w) || rid.includes(w) || rname.includes(w) || body.includes(w) || n.tags.some((t) => t.toLowerCase().includes(w)))) return null;
@@ -1156,20 +1192,23 @@ sIn.addEventListener('input', () => {
     }
     if (rid) score += 1;
     if (n.type === 'thesis') score += 1;
-    return { n, score };
-  }).filter(Boolean).sort((a, b) => b.score - a.score || b.n.degree - a.n.degree).slice(0, 10).map((x) => x.n);
-  sIdx = 0; renderSearch(q);
+    // 제목·ID·이름에 없는 단어가 있으면 본문에서 찾은 것 → 찾은 곳을 보여준다
+    const inBody = words.find((w) => !title.includes(w) && !rid.includes(w) && !rname.includes(w));
+    return { n, score, hit: inBody };
+  }).filter(Boolean).sort((a, b) => b.score - a.score || b.n.degree - a.n.degree).slice(0, 12);
+  sIdx = 0; sQuery = q; renderSearch();
 });
-function renderSearch(q) {
+function renderSearch() {
   sOut.hidden = false;
-  if (!sList.length) { sOut.innerHTML = `<li class="none">“${esc(q)}” 와 맞는 노트가 없어요</li>`; return; }
-  sOut.innerHTML = sList.map((n, i) => `<li data-id="${n.id}" class="${i === sIdx ? 'active' : ''}"><span class="dot" style="background:${TYPES[n.type]?.light}"></span><span><span class="t">${esc(n.title)}</span><span class="s">${n.aux ? '<span class="aux-tag">참고 자료</span> ' : ''}${n.props?.['요구사항ID'] ? [n.props['업무'], n.props['대분류'], n.props['중분류'], n.props['처리결과'] === '취소선' ? '취소' : ''].filter(Boolean).map(esc).join(' › ') : (TYPES[n.type]?.ko || '') + (n.summary ? ' · ' + esc(n.summary.slice(0, 80)) : '')}</span></span></li>`).join('');
+  if (!sList.length) { sOut.innerHTML = `<li class="none">“${esc(sQuery)}” 와 맞는 노트가 없어요${FULL ? '' : fullLoading ? ' · 본문 검색 준비 중…' : ''}</li>`; return; }
+  sOut.innerHTML = sList.map(({ n, hit }, i) => { const sn = hit ? snippet(n, hit) : ''; return `<li data-id="${n.id}" class="${i === sIdx ? 'active' : ''}"><span class="dot" style="background:${TYPES[n.type]?.light}"></span><span><span class="t">${esc(n.title)}</span><span class="s">${n.aux ? '<span class="aux-tag">참고 자료</span> ' : ''}${n.props?.['요구사항ID'] ? [n.lv === '상위' ? '상위' : '', n.props['업무'], n.props['대분류'], n.props['중분류'], n.props['처리결과'] === '취소선' ? '취소' : ''].filter(Boolean).map(esc).join(' › ') : (TYPES[n.type]?.ko || '') + (n.summary && !sn ? ' · ' + esc(n.summary.slice(0, 80)) : '')}</span>${sn ? `<span class="s snip"><span class="body-tag">본문</span> ${sn}</span>` : ''}</span></li>`; }).join('')
+    + (FULL ? '' : `<li class="none">${fullLoading ? '본문 검색 준비 중…' : '제목·속성에서 찾은 결과예요'}</li>`);
 }
 sIn.addEventListener('keydown', (e) => {
   if (sOut.hidden || !sList.length) { if (e.key === 'Escape') sIn.blur(); return; }
   if (e.key === 'ArrowDown') { sIdx = (sIdx + 1) % sList.length; renderSearch(); e.preventDefault(); }
   else if (e.key === 'ArrowUp') { sIdx = (sIdx - 1 + sList.length) % sList.length; renderSearch(); e.preventDefault(); }
-  else if (e.key === 'Enter') { pick(sList[sIdx].id); }
+  else if (e.key === 'Enter') { pick(sList[sIdx].n.id); }
   else if (e.key === 'Escape') { sOut.hidden = true; sIn.blur(); }
 });
 sOut.addEventListener('pointerdown', (e) => { const li = e.target.closest('li[data-id]'); if (li) { e.preventDefault(); pick(li.dataset.id); } });

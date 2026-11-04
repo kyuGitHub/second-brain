@@ -235,6 +235,7 @@ export function build({ quiet = false } = {}) {
   };
 
   const brokenLinks = [];
+  const fullText = {}; // 노트 id → 본문 전체 글자 (본문 검색용)
   for (const n of notes) {
     for (const [key, type] of Object.entries(RELATION_KEYS)) {
       for (const v of asArray(n.fm[key])) {
@@ -297,7 +298,12 @@ export function build({ quiet = false } = {}) {
     const plain = n.body.replace(/^#.*$/gm, '').replace(/!\[\[[^\]]*\]\]/g, '').replace(/\[\[([^\]|]+)\|?([^\]]*)\]\]/g, (m, a, b) => b || a)
       .replace(/[*_>`#=\-]/g, '').replace(/\s+/g, ' ').trim();
     n.summary = String(n.fm.summary || n.fm.요약 || plain.slice(0, 160));
-    n.searchText = (n.title + ' ' + n.aliases.join(' ') + ' ' + Object.values(n.props).join(' ') + ' ' + plain).slice(0, 1500);
+    // 그래프에는 짧은 검색어만, 본문 전체는 search.json 으로 따로 (검색할 때만 받음)
+    n.searchText = (n.title + ' ' + n.aliases.join(' ') + ' ' + Object.values(n.props).join(' ') + ' ' + plain).slice(0, 300);
+    fullText[n.id] = plain.slice(0, 20000);
+    // 요구사항 수준: 상위(RFP) / 세부
+    const lvRule = cfg.levelRule;
+    if (lvRule && n.props[lvRule.requires]) n.lv = String(n.props[lvRule.field] ?? '') === String(lvRule.equals) ? lvRule.top : lvRule.else;
     n.file = shortHash(n.id) + '.json';
     // 변경 감지용 본문 지문. 업로드할 때 이전 업로드와 비교한다
     n.fp = shortHash(html); // 본문 지문 (제목·속성은 따로 비교)
@@ -325,7 +331,7 @@ export function build({ quiet = false } = {}) {
   const nodes = [
     ...notes.map((n) => ({
       id: n.id, title: n.title, type: n.type, folder: n.folder, docType: n.docType, cats: n.cats, props: n.props, topics: n.topics, tags: n.tags,
-      date: n.date, source: n.source, url: n.url, summary: n.summary, file: n.file, search: n.searchText, broken: n.broken || 0, aux: n.aux || undefined, fp: n.fp,
+      date: n.date, source: n.source, url: n.url, summary: n.summary, file: n.file, search: n.searchText, lv: n.lv, broken: n.broken || 0, aux: n.aux || undefined, fp: n.fp,
     })),
     ...topicNodes.values(),
   ];
@@ -339,6 +345,7 @@ export function build({ quiet = false } = {}) {
       title: cfg.siteTitle || 'Second Brain',
       subtitle: cfg.siteSubtitle || '',
       builtAt: new Date().toISOString(),
+      format: 2, // 데이터 형식 버전. 바뀌면 노트 변경이 없어도 한 번 업로드한다 (2: search.json·요구사항 수준)
       noteCount: notes.length,
       features: cfg.features || {},
       typeLabels: cfg.typeLabels || {},
@@ -348,6 +355,7 @@ export function build({ quiet = false } = {}) {
     links,
   };
   fs.writeFileSync(path.join(OUT, 'graph.json'), JSON.stringify(graph));
+  fs.writeFileSync(path.join(OUT, 'search.json'), JSON.stringify(fullText));
 
   if (!quiet) {
     console.log(`✔ 그래프 생성 완료: 노트 ${notes.length}개, 노드 ${nodes.length}개, 연결 ${links.length}개 (${Date.now() - t0}ms)`);

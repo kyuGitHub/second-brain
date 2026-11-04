@@ -73,7 +73,8 @@ const prevHasFp = !!prev?.nodes?.some((n) => n.fp);
 const entry = diffGraphs(prev, graph);
 let history = (await getJson('history.json')) || [];
 if (!Array.isArray(history)) history = [];
-if (prev && prevHasFp && isEmpty(entry) && !FORCE) {
+const formatChanged = (prev?.meta?.format || 1) !== (graph.meta.format || 1); // 프로그램이 바뀌어 데이터 형식이 달라졌으면 한 번 올린다
+if (prev && prevHasFp && isEmpty(entry) && !FORCE && !formatChanged) {
   console.log('✔ 바뀐 노트가 없어서 올리지 않았어요. (그래도 올리려면 npm run upload -- --force)');
   await sb.auth.signOut();
   process.exit(0);
@@ -82,6 +83,8 @@ if (!prev || !prevHasFp) {
   // 비교할 이전 기록이 없거나 옛 형식이면 '기준선'만 남긴다 (다음 업로드부터 변경이 기록됨)
   history.unshift({ at: entry.at, baseline: true, total: entry.total, added: [], removed: [], changed: [] });
   console.log(`  · 변경 이력 기준선을 만들었어요 (문서 ${entry.total}개). 다음 업로드부터 변경이 기록돼요.`);
+} else if (isEmpty(entry)) {
+  console.log('  · 노트 변경은 없고 데이터 형식만 바뀌어서 올려요 (변경 이력에는 남기지 않아요).');
 } else {
   history.unshift(entry);
   console.log(`  · 변경: 추가 ${entry.added.length} · 변경 ${entry.changed.length} · 삭제 ${entry.removed.length}`);
@@ -103,6 +106,8 @@ const put = async (name, obj) => {
 };
 await put('graph.json', graph);
 await put('history.json', history);
+const searchFile = path.join(ROOT, 'public', 'data', 'search.json');
+if (fs.existsSync(searchFile)) await put('search.json', JSON.parse(fs.readFileSync(searchFile, 'utf8'))); // 본문 검색용
 for (const [k, obj] of Object.entries(chunks)) await put(`notes/${k}.json`, obj);
 await sb.storage.from(BUCKET).remove(['notes.json']); // 예전 한 덩어리 파일 정리
 await sb.auth.signOut();

@@ -138,5 +138,12 @@
     {
       "type": "MOC"
     }
-  ]
+  ],
+  "levelRule": {
+    "requires": "요구사항ID",
+    "field": "업무",
+    "equals": "상위요구사항",
+    "top": "상위",
+    "else": "세부"
+  }
 }

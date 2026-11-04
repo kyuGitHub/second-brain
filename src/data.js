@@ -35,7 +35,16 @@ export async function loadNoteHtml(file) {
 // 변경 이력 (업로드할 때마다 한 건씩 쌓임, 최신이 앞). 없으면 빈 목록
 export async function loadHistory() {
   try {
-    if (LOCAL) { const res = await fetch('data/history.json', { cache: 'no-store' }); return res.ok ? res.json() : []; }
+    if (LOCAL) { const res = await fetch('data/history.json', { cache: 'no-store' }); return res.ok ? await res.json() : []; }
     return await remoteJson('history.json');
   } catch { return []; }
+}
+
+// 본문 전체 검색용 글자 (노트 id → 본문). 크기가 커서 검색을 처음 할 때 한 번만 받는다. 없으면 null
+let searchP = null;
+export function loadSearch() {
+  searchP ??= (LOCAL
+    ? fetch('data/search.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
+    : remoteJson('search.json')).catch(() => null);
+  return searchP;
 }

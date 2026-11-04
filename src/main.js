@@ -3,7 +3,8 @@ import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
 import ForceGraph from 'force-graph';
 import { gate } from './auth.js';
 import { loadGraph, loadNoteHtml, loadHistory, loadSearch, LOCAL } from './data.js';
-import { logEvent, loadUsage } from './usage.js';
+import { logEvent, loadUsage, askAvailable, askClaude, loadMyQuestions } from './usage.js';
+import { marked } from 'marked';
 import ForceGraph3D from '3d-force-graph';
 import SpriteText from 'three-spritetext';
 import * as THREE from 'three';
@@ -953,6 +954,136 @@ function openOverview({ back = false } = {}) {
   fillUsage();
 }
 
+/* ───────────── AI 질문 ───────────── */
+// 1) 브라우저에서 질문과 관련된 문서를 고른다 (요구사항 ID → 제목·속성 → 본문 순으로 점수)
+// 2) 서버 함수(ask)가 그 문서만 근거로 Claude 에게 답을 받고, 질문·답을 DB 에 남긴다
+const askThread = []; // 이번 대화 { q, a, refs, error, pending }
+const STOP = new Set('알려줘 알려 줘 해줘 해주세요 정리 정리해줘 요약 요약해줘 무엇 뭐 뭔가 어떤 어떻게 있어 있나 있는지 있나요 관련 관련된 대해 대해서 내용 정도 그리고 또는 그 이 저 및 등 좀 주요 전체 모두 목록 설명 설명해줘 뭐야 뭐지 무엇인가 알고 싶어 궁금해'.split(' '));
+const JOSA = /(으로써|으로서|에서는|에서도|에서|에게|으로|로는|이랑|하고|까지|부터|처럼|보다|이나|에는|에도|과는|와는|은|는|이|가|을|를|의|에|로|와|과|도|만|랑|요)$/;
+function askTerms(q) {
+  const ids = [...q.toUpperCase().matchAll(/\bREQ-[A-Z]{1,5}-\d{1,5}\b/g)].map((m) => m[0]);
+  const words = q.toLowerCase().replace(/\bREQ-[A-Z]{1,5}-\d{1,5}\b/gi, ' ').split(/[^\p{L}\p{N}]+/u)
+    .map((w) => (w.length > 2 ? w.replace(JOSA, '') : w)).filter((w) => w.length >= 2 && !STOP.has(w));
+  return { ids, words: [...new Set(words)] };
+}
+function askDocs(q, prevQs = []) {
+  // 이어지는 질문이면 앞 질문의 단어도 약하게(0.3) 반영한다
+  const cur = askTerms(q), old = askTerms(prevQs.slice(-2).join(' '));
+  const ids = cur.ids.length ? cur.ids : old.ids;
+  const weight = new Map(old.words.map((w) => [w, 0.3]));
+  for (const w of cur.words) weight.set(w, 1);
+  const words = [...weight.keys()];
+  const pool = G.nodes.filter((n) => n.type !== 'topic');
+  const N = pool.length;
+  const df = new Map(words.map((w) => [w, pool.filter((n) => bodyText(n).includes(w) || n.title.toLowerCase().includes(w)).length]));
+  const scored = pool.map((n) => {
+    const rid = String(n.props?.['요구사항ID'] || '').toUpperCase();
+    let s = ids.includes(rid) ? 1000 : 0;
+    const title = n.title.toLowerCase(), props = Object.values(n.props || {}).join(' ').toLowerCase(), body = bodyText(n);
+    for (const w of words) {
+      const d = df.get(w); if (!d) continue;
+      const idf = Math.log(1 + N / d);
+      let hit = 0;
+      if (title.includes(w)) hit += 5;
+      if (props.includes(w)) hit += 3;
+      let c = 0, i = body.indexOf(w); while (i >= 0 && c < 6) { c++; i = body.indexOf(w, i + w.length); }
+      hit += c;
+      s += hit * idf * weight.get(w);
+    }
+    if (s && n.aux) s *= 0.6;                                  // 보조 자료는 조금 낮게
+    if (s && n.props?.['처리결과'] === '취소선') s *= 0.5;      // 취소된 요구사항도 낮게
+    return { n, s };
+  }).filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
+  const picked = [], LIMIT = 10, BUDGET = 32000; let used = 0;
+  for (const { n } of scored) {
+    if (picked.length >= LIMIT || used >= BUDGET) break;
+    const text = (FULL?.[n.id] || n.search || '').slice(0, Math.min(3500, BUDGET - used));
+    used += text.length;
+    picked.push({ n, doc: {
+      id: n.id, title: n.title, kind: n.props?.['요구사항ID'] ? `요구사항(${n.lv || '세부'})` : (n.docType || TYPES[n.type]?.ko || ''),
+      props: Object.entries(n.props || {}).filter(([k]) => k !== 'updated').map(([k, v]) => `${k}: ${v}`).join(' / '), text,
+    } });
+  }
+  return picked;
+}
+const mdHtml = (t) => marked.parse(String(t || '').replace(/</g, '&lt;'), { gfm: true, breaks: true });
+function askItemHtml(it, i) {
+  const refs = (it.refs || []).map((id) => byId.get(id)).filter(Boolean);
+  const cited = refs.filter((n) => { const rid = n.props?.['요구사항ID']; return it.a && (rid ? it.a.includes(rid) : it.a.includes(n.title)); });
+  const rest = refs.filter((n) => !cited.includes(n));
+  const li = (n) => `<button type="button" class="li-item" data-id="${n.id}"><span class="dot" style="background:${TYPES[n.type]?.light}"></span><span class="li-main"><span class="li-t">${esc(n.title)}</span></span></button>`;
+  return `<div class="ask-item-wrap">
+    <div class="ask-q">${esc(it.q)}</div>
+    ${it.pending ? `<div class="ask-a ask-wait"><span class="ask-dots"><i></i><i></i><i></i></span> 관련 문서 ${it.refs?.length || 0}개를 보고 답을 만들고 있어요…</div>`
+      : it.error ? `<div class="ask-a ask-err">${esc(it.error)}</div>`
+      : `<div class="ask-a md" data-ans="${i}">${mdHtml(it.a)}</div>`}
+    ${!it.pending && refs.length ? `<details class="ask-refs"${cited.length ? '' : ' open'}><summary>근거 문서 ${cited.length ? `${cited.length}개 (함께 본 문서 ${rest.length}개)` : `${refs.length}개`}</summary>
+      <div class="ov-recent">${cited.map(li).join('')}${rest.length ? `<div class="ask-sub">함께 본 문서</div>${rest.map(li).join('')}` : ''}</div></details>` : ''}
+    ${!it.pending && !it.error && !refs.length ? '<p class="hint" style="margin:6px 0 0">질문과 맞는 문서를 찾지 못해서 문서 없이 답했어요.</p>' : ''}
+  </div>`;
+}
+function renderAskThread() {
+  const box = $('ask-thread'); if (!box) return;
+  box.innerHTML = askThread.length ? askThread.map(askItemHtml).join('')
+    : `<div class="ask-empty"><p class="hint" style="margin:0 0 8px">이렇게 물어보세요</p><div class="chips">${['주택담보대출 심사 단계 요구사항 요약해줘', 'REQ-AP-181 은 어떤 요구사항이야?', '본인인증 관련 요구사항은 어디에 있어?', '취소된 요구사항 중 비대면 관련된 건?'].map((x) => `<button type="button" class="chip" data-ex="${esc(x)}">${esc(x)}</button>`).join('')}</div></div>`;
+  box.querySelectorAll('[data-ans]').forEach((el) => linkifyIds(el));
+  const last = box.lastElementChild; if (last && askThread.length) last.scrollIntoView({ block: 'nearest' });
+}
+async function renderAskHistory() {
+  const box = $('ask-history'); if (!box) return;
+  const rows = await loadMyQuestions(20);
+  if (!$('ask-history')) return;
+  if (!rows) { box.innerHTML = `<p class="hint" style="margin:0">${askAvailable() ? '질문 기록을 불러오지 못했어요. Supabase 에 supabase/ask.sql 을 실행했는지 확인해 주세요.' : '웹사이트에 로그인해서 쓸 때 기록돼요.'}</p>`; return; }
+  window.__askRows = rows;
+  box.innerHTML = rows.length ? rows.map((r, i) => `<button type="button" class="li-item" data-askrow="${i}"><span class="ask-ic sm">✦</span>
+      <span class="li-main"><span class="li-t">${esc(r.question)}</span><span class="li-s">${esc(fmtWhen(r.at))}${r.ok ? '' : ' · 실패'}</span></span></button>`).join('')
+    : '<p class="hint" style="margin:0">아직 질문한 기록이 없어요.</p>';
+}
+async function sendAsk(q) {
+  q = q.trim(); if (!q) return;
+  if (!askAvailable()) { askThread.push({ q, error: '웹사이트(로그인 후)에서만 AI 질문을 쓸 수 있어요. 내 PC 미리보기에서는 쓸 수 없어요.' }); renderAskThread(); return; }
+  if (!FULL) { const f = await loadSearch(); if (f) { FULL = f; fullLc.clear(); } }
+  const prev = askThread.filter((x) => x.a && !x.error);
+  const picked = askDocs(q, prev.map((x) => x.q));
+  const it = { q, refs: picked.map((p) => p.n.id), pending: true };
+  askThread.push(it); renderAskThread();
+  const btn = $('ask-send'); if (btn) btn.disabled = true;
+  try {
+    const res = await askClaude({ question: q, docs: picked.map((p) => p.doc), history: prev.slice(-3).map((x) => ({ q: x.q, a: x.a })) });
+    it.a = res.answer || '(빈 답)';
+  } catch (e) { it.error = e.message; }
+  it.pending = false;
+  if ($('ask-send')) $('ask-send').disabled = false;
+  renderAskThread(); renderAskHistory();
+}
+function openAsk({ back = false, question = '' } = {}) {
+  if (!G) return;
+  if (!back && state.panel && state.panel.kind !== 'ask') state.stack.push(state.panel);
+  state.panel = { kind: 'ask' };
+  state.selected = null;
+  $('node-card').hidden = true;
+  $('panel').hidden = false;
+  $('panel-back').disabled = !state.stack.length;
+  $('panel-body').innerHTML = `
+    <div class="p-type"><span class="ask-ic sm">✦</span>AI 질문 · Claude</div>
+    <h2 class="p-title">요구사항 물어보기</h2>
+    <p class="hint" style="margin:0 0 14px">질문과 관련된 문서를 찾아 Claude 가 그 문서만 보고 답해요. 답은 틀릴 수 있으니 근거 문서를 꼭 확인하세요.</p>
+    <div id="ask-thread" class="ask-thread"></div>
+    <form id="ask-form" class="ask-form">
+      <textarea id="ask-q" rows="3" maxlength="1000" placeholder="예: 주택담보대출 심사 단계 요구사항 요약해줘  (Enter 보내기 · Shift+Enter 줄바꿈)"></textarea>
+      <div class="ask-actions"><button type="button" class="link-btn" id="ask-new">새 대화</button><button type="submit" class="ask-send" id="ask-send">질문하기</button></div>
+    </form>
+    <h3 class="ov-h">내 질문 기록 <span class="ov-h-s">나만 볼 수 있어요</span></h3>
+    <div id="ask-history" class="ov-recent"><p class="hint" style="margin:0">불러오는 중…</p></div>`;
+  const ta = $('ask-q');
+  $('ask-form').onsubmit = (e) => { e.preventDefault(); const v = ta.value; ta.value = ''; sendAsk(v); };
+  ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('ask-form').requestSubmit(); } };
+  $('ask-new').onclick = () => { askThread.length = 0; renderAskThread(); ta.focus(); };
+  renderAskThread(); renderAskHistory();
+  refresh();
+  if (question) sendAsk(question); else setTimeout(() => ta.focus(), 50);
+}
+
 /* ───────────── 사용 현황 (최근 30일) ───────────── */
 async function fillUsage() {
   const u = await loadUsage(30);
@@ -975,16 +1106,23 @@ async function fillUsage() {
     <div class="ov-tiles ov-tiles-sm">
       <div class="ov-tile"><div class="ov-n">${u.users_7d}</div><div class="ov-l">이번 주 이용자</div><div class="ov-s">30일 ${u.users}명</div></div>
       <div class="ov-tile"><div class="ov-n">${u.views_7d.toLocaleString()}</div><div class="ov-l">이번 주 조회</div><div class="ov-s">30일 ${u.views.toLocaleString()}회</div></div>
+      ${u.asks_7d != null ? `<div class="ov-tile"><div class="ov-n">${u.asks_7d.toLocaleString()}</div><div class="ov-l">이번 주 AI 질문</div><div class="ov-s">30일 ${u.asks.toLocaleString()}회</div></div>
+      <div class="ov-tile"><div class="ov-n">${(u.searches || 0).toLocaleString()}</div><div class="ov-l">30일 검색</div><div class="ov-s">결과를 연 검색 + 못 찾은 검색</div></div>` : ''}
     </div>
     <div class="ov-spark" aria-label="최근 30일 일별 조회">${days.map((x) => `<span title="${x.d} · 조회 ${x.n}회 · ${x.u}명" style="height:${Math.max(2, Math.round((x.n / max) * 100))}%"></span>`).join('')}</div>
     <h4 class="ov-h4">많이 본 문서</h4>
     ${top.length ? `<div class="ov-recent">${top.map((t) => `<button type="button" class="li-item" ${t.node ? `data-id="${t.node.id}"` : 'disabled'}><span class="dot" style="background:${TYPES[t.node?.type]?.light || '#999'}"></span>
       <span class="li-main"><span class="li-t">${esc(t.node?.title || t.title || t.key)}</span><span class="li-s">조회 ${t.n}회 · ${t.u}명${t.node ? '' : ' · 지금은 없는 문서'}</span></span></button>`).join('')}</div>` : '<p class="hint" style="margin:0">아직 기록이 없어요.</p>'}
+    ${(u.queries || []).length ? `<h4 class="ov-h4">자주 찾은 검색어</h4><div class="chips">${u.queries.map((x) => `<button type="button" class="chip" data-miss="${esc(x.q)}">${esc(x.q)}<span class="n">${x.n}</span></button>`).join('')}</div>` : ''}
     <h4 class="ov-h4">찾지 못한 검색어 <span class="ov-h-s">자료가 부족한 주제일 수 있어요</span></h4>
     ${(u.misses || []).length ? `<div class="chips">${u.misses.map((x) => `<button type="button" class="chip" data-miss="${esc(x.q)}">${esc(x.q)}<span class="n">${x.n}</span></button>`).join('')}</div>` : '<p class="hint" style="margin:0">없어요.</p>'}`;
 }
 
 $('panel-body').addEventListener('click', (e) => {
+  const ex = e.target.closest('[data-ex]');
+  if (ex) { sendAsk(ex.dataset.ex); return; }
+  const ar = e.target.closest('[data-askrow]');
+  if (ar) { const r = window.__askRows?.[Number(ar.dataset.askrow)]; if (r) { askThread.push({ q: r.question, a: r.answer || '', error: r.ok ? null : (r.error || '실패한 질문이에요'), refs: Array.isArray(r.refs) ? r.refs : [] }); renderAskThread(); } return; }
   const miss = e.target.closest('[data-miss]');
   if (miss) { sIn.value = miss.dataset.miss; sIn.focus(); sIn.dispatchEvent(new Event('input')); return; }
   const ov = e.target.closest('[data-ov]');
@@ -1238,22 +1376,27 @@ sIn.addEventListener('input', () => {
   clearTimeout(sIn._miss);
   if (!sList.length && q.length >= 2 && FULL) sIn._miss = setTimeout(() => { if (sIn.value.trim().toLowerCase() === q && !sList.length) logEvent('search_miss', q); }, 1500);
 });
+const askLi = () => (sQuery.length >= 2 ? `<li class="ask-item" data-ask="1"><span class="ask-ic">✦</span><span><span class="t">AI에게 물어보기</span><span class="s">“${esc(sQuery)}” · Shift+Enter</span></span></li>` : '');
 function renderSearch() {
   sOut.hidden = false;
-  if (!sList.length) { sOut.innerHTML = `<li class="none">“${esc(sQuery)}” 와 맞는 노트가 없어요${FULL ? '' : fullLoading ? ' · 본문 검색 준비 중…' : ''}</li>`; return; }
+  if (!sList.length) { sOut.innerHTML = `<li class="none">“${esc(sQuery)}” 와 맞는 노트가 없어요${FULL ? '' : fullLoading ? ' · 본문 검색 준비 중…' : ''}</li>` + askLi(); return; }
   sOut.innerHTML = sList.map(({ n, hit }, i) => { const sn = hit ? snippet(n, hit) : ''; return `<li data-id="${n.id}" class="${i === sIdx ? 'active' : ''}"><span class="dot" style="background:${TYPES[n.type]?.light}"></span><span><span class="t">${esc(n.title)}</span><span class="s">${n.aux ? '<span class="aux-tag">참고 자료</span> ' : ''}${n.props?.['요구사항ID'] ? [n.lv === '상위' ? '상위' : '', n.props['업무'], n.props['대분류'], n.props['중분류'], n.props['처리결과'] === '취소선' ? '취소' : ''].filter(Boolean).map(esc).join(' › ') : (TYPES[n.type]?.ko || '') + (n.summary && !sn ? ' · ' + esc(n.summary.slice(0, 80)) : '')}</span>${sn ? `<span class="s snip"><span class="body-tag">본문</span> ${sn}</span>` : ''}</span></li>`; }).join('')
-    + (FULL ? '' : `<li class="none">${fullLoading ? '본문 검색 준비 중…' : '제목·속성에서 찾은 결과예요'}</li>`);
+    + (FULL ? '' : `<li class="none">${fullLoading ? '본문 검색 준비 중…' : '제목·속성에서 찾은 결과예요'}</li>`) + askLi();
 }
 sIn.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.shiftKey || !sList.length) && sIn.value.trim().length >= 2) { e.preventDefault(); askFromSearch(); return; }
   if (sOut.hidden || !sList.length) { if (e.key === 'Escape') sIn.blur(); return; }
   if (e.key === 'ArrowDown') { sIdx = (sIdx + 1) % sList.length; renderSearch(); e.preventDefault(); }
   else if (e.key === 'ArrowUp') { sIdx = (sIdx - 1 + sList.length) % sList.length; renderSearch(); e.preventDefault(); }
   else if (e.key === 'Enter') { pick(sList[sIdx].n.id); }
   else if (e.key === 'Escape') { sOut.hidden = true; sIn.blur(); }
 });
-sOut.addEventListener('pointerdown', (e) => { const li = e.target.closest('li[data-id]'); if (li) { e.preventDefault(); pick(li.dataset.id); } });
+sOut.addEventListener('pointerdown', (e) => { if (e.target.closest('[data-ask]')) { e.preventDefault(); askFromSearch(); return; } const li = e.target.closest('li[data-id]'); if (li) { e.preventDefault(); pick(li.dataset.id); } });
 sIn.addEventListener('blur', () => setTimeout(() => (sOut.hidden = true), 120));
-function pick(id) { sOut.hidden = true; sIn.value = ''; sIn.blur(); openNote(id); }
+function pick(id) { const q = sIn.value.trim(); if (q.length >= 2) logEvent('search', q.toLowerCase()); sOut.hidden = true; sIn.value = ''; sIn.blur(); openNote(id); }
+// 검색창에서 묻는 질문은 새 대화로 시작한다
+function askFromSearch() { const q = sIn.value.trim(); sOut.hidden = true; sIn.value = ''; sIn.blur(); askThread.length = 0; openAsk({ question: q }); }
+$('ask-btn').addEventListener('click', () => { const q = sIn.value.trim(); sIn.value = ''; sOut.hidden = true; if (q.length >= 2) askThread.length = 0; openAsk(q.length >= 2 ? { question: q } : {}); });
 document.addEventListener('keydown', (e) => {
   if (F.search && e.key === '/' && document.activeElement !== sIn) { e.preventDefault(); sIn.focus(); }
   if (e.key === 'Escape' && document.activeElement !== sIn && (state.selected || state.panel)) closePanel();
@@ -1379,6 +1522,7 @@ $('panel-back').onclick = () => {
   if (prev.kind === 'list') { applyCat(prev.scheme, prev.path); openList({ back: true }); }
   else if (prev.kind === 'custom') openCustomList(prev.eyebrow, prev.title, prev.ids, { back: true });
   else if (prev.kind === 'overview') openOverview({ back: true });
+  else if (prev.kind === 'ask') openAsk({ back: true });
   else openNote(prev.id, { back: true });
 };
 
@@ -1431,7 +1575,8 @@ function focusNode(id) {
 
 new ResizeObserver(resize).observe($('stage'));
 // 오른쪽 패널이 열리면 표가 그만큼 비켜서 가려지지 않게 한다
-const fitTable = () => { const open = !$('panel').hidden && !isMobile(); $('table-view').style.right = open ? $('panel').offsetWidth + 'px' : '0'; };
+// 검색창도 패널을 뺀 나머지 영역의 가운데로 옮긴다
+const fitTable = () => { const open = !$('panel').hidden && !isMobile(); const w = open ? $('panel').offsetWidth : 0; $('table-view').style.right = w + 'px'; $('stage').style.setProperty('--pw', w + 'px'); };
 new MutationObserver(fitTable).observe($('panel'), { attributes: true, attributeFilter: ['hidden', 'class'] });
 window.addEventListener('resize', fitTable);
 // 그래프 라벨은 캔버스에 그려서, Pretendard 글자가 내려받아지면 다시 그려 준다

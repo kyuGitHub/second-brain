@@ -456,3 +456,38 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .ov-spark span:hover { opacity: 1; }
 .ov-h4 { font-size: 12px; font-weight: 600; color: var(--ink-2); margin: 16px 0 8px; display: flex; gap: 8px; align-items: baseline; }
 .ov-h4 .ov-h-s { font-size: 11px; }
+
+/* 검색창: 오른쪽 패널이 열리면 남은 영역 가운데로 비켜 선다 */
+@media (min-width: 861px) {
+  .search { left: calc((100% - var(--pw, 0px)) / 2); width: min(640px, calc(100% - var(--pw, 0px) - 64px)); transition: left .2s ease, width .2s ease; }
+  .stage.light .search { width: min(560px, calc(100% - var(--pw, 0px) - 64px)); }
+}
+.search input { padding-right: 112px; }
+.ask-btn { position: absolute; right: 7px; top: 7px; height: 34px; padding: 0 13px; border-radius: 999px; border: 0; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; color: #141414; background: #c9f23e; }
+.ask-btn:hover { filter: brightness(1.06); }
+.search-results .ask-item { border-top: 1px solid var(--line, rgba(0,0,0,.08)); margin-top: 4px; border-radius: 0 0 10px 10px; }
+.ask-ic { color: #7a9a00; font-size: 14px; flex: none; }
+.ask-ic.sm { font-size: 12px; margin-right: 6px; }
+
+/* AI 질문 패널 */
+.ask-thread { display: flex; flex-direction: column; gap: 16px; }
+.ask-q { align-self: flex-end; margin-left: 15%; background: var(--ink); color: var(--paper); padding: 9px 13px; border-radius: 14px 14px 4px 14px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; width: fit-content; max-width: 85%; margin-left: auto; }
+.ask-a { margin-top: 8px; background: var(--paper-2); border-radius: 4px 14px 14px 14px; padding: 12px 14px; font-size: 14px; line-height: 1.65; }
+.ask-a.md > :first-child { margin-top: 0; } .ask-a.md > :last-child { margin-bottom: 0; }
+.ask-a.md ul, .ask-a.md ol { padding-left: 20px; margin: 6px 0; }
+.ask-a.md table { border-collapse: collapse; font-size: 13px; margin: 8px 0; display: block; overflow-x: auto; }
+.ask-a.md th, .ask-a.md td { border: 1px solid var(--line, rgba(0,0,0,.1)); padding: 4px 8px; text-align: left; }
+.ask-err { color: #a33a1f; }
+.ask-wait { color: var(--ink-2); display: flex; align-items: center; gap: 10px; }
+.ask-dots { display: inline-flex; gap: 3px; } .ask-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); animation: askb 1s infinite ease-in-out; }
+.ask-dots i:nth-child(2) { animation-delay: .15s; } .ask-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes askb { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+.ask-refs { margin-top: 8px; font-size: 13px; } .ask-refs summary { cursor: pointer; color: var(--ink-2); padding: 2px 0; }
+.ask-refs .ov-recent { margin-top: 6px; } .ask-sub { font-size: 11px; color: var(--ink-3); margin: 8px 0 2px; }
+.ask-form { margin-top: 16px; border: 1px solid var(--line, rgba(0,0,0,.12)); border-radius: 14px; padding: 10px; background: var(--paper); position: sticky; bottom: 0; }
+.ask-form textarea { width: 100%; border: 0; resize: vertical; font: inherit; font-size: 14px; background: transparent; color: var(--ink); outline: none; min-height: 60px; }
+.ask-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+.ask-send { border: 0; border-radius: 999px; padding: 8px 16px; font: inherit; font-size: 13px; font-weight: 600; background: var(--ink); color: var(--paper); cursor: pointer; }
+.ask-send:disabled { opacity: .45; cursor: wait; }
+@media (prefers-reduced-motion: reduce) { .ask-dots i { animation: none; } .search { transition: none; } }

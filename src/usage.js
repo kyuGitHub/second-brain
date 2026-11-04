@@ -25,3 +25,22 @@ export async function loadUsage(days = 30) {
     return error ? null : data;
   } catch { return null; }
 }
+
+// AI 질문: 서버 함수(ask)로 질문과 근거 문서를 보내 답을 받는다
+export const askAvailable = () => !LOCAL && !!supabase;
+export async function askClaude(payload) {
+  const { data, error } = await supabase.functions.invoke('ask', { body: payload });
+  if (error) {
+    let msg = '';
+    try { msg = (await error.context?.json?.())?.error || ''; } catch { /* 무시 */ }
+    if (!msg && /Failed to send|fetch/i.test(String(error.message))) msg = 'AI 질문 서버(ask 함수)에 연결하지 못했어요. 아직 배포되지 않았을 수 있어요.';
+    throw new Error(msg || error.message || 'AI 질문에 실패했어요.');
+  }
+  return data;
+}
+// 내 질문 기록 (본인 것만 보임)
+export async function loadMyQuestions(limit = 20) {
+  if (!askAvailable()) return null;
+  const { data, error } = await supabase.from('brain_questions').select('id, at, question, answer, refs, ok, error').order('at', { ascending: false }).limit(limit);
+  return error ? null : data;
+}

@@ -29,7 +29,7 @@ export async function loadUsage(days = 30) {
 // AI 질문: 서버 함수(ask)로 질문과 근거 문서를 보내 답을 받는다
 export const askAvailable = () => !LOCAL && !!supabase;
 export async function askClaude(payload) {
-  const { data, error } = await supabase.functions.invoke('ask', { body: payload });
+  const { data, error } = await supabase.functions.invoke(import.meta.env.VITE_ASK_FUNCTION || 'ask', { body: payload });
   if (error) {
     let msg = '';
     try { msg = (await error.context?.json?.())?.error || ''; } catch { /* 무시 */ }

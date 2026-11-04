@@ -35,6 +35,8 @@ GitHub (프로그램만) ──▶ Vercel 자동 배포 ──▶ 접속 → 로
 
 다른 사람에게 보여주려면: 계정 초대 + `brain_members` 에 이메일 추가 (`can_upload` 은 false).
 
+**(선택) 사용 현황 켜기**: SQL Editor 에서 `supabase/usage.sql` 을 한 번 실행하면 개요에 "사용 현황"이 보여요 (이번 주 이용자·조회 수, 일별 조회, 많이 본 문서, 찾지 못한 검색어). 사람별 기록은 누구도 직접 볼 수 없고 합계만 보여요. 실행하지 않아도 사이트는 그대로 동작해요.
+
 ## 2. 웹사이트
 
 - **GitHub Pages**: `main` 에 올라가면 자동 배포돼요 → https://kyugithub.github.io/second-brain/

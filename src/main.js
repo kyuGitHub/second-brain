@@ -3,6 +3,7 @@ import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';
 import ForceGraph from 'force-graph';
 import { gate } from './auth.js';
 import { loadGraph, loadNoteHtml, loadHistory, loadSearch, LOCAL } from './data.js';
+import { logEvent, loadUsage } from './usage.js';
 import ForceGraph3D from '3d-force-graph';
 import SpriteText from 'three-spritetext';
 import * as THREE from 'three';
@@ -929,6 +930,8 @@ function openOverview({ back = false } = {}) {
 
     ${changesOverviewHtml()}
 
+    <div id="ov-usage"><h3 class="ov-h">사용 현황</h3><p class="hint" style="margin:0">불러오는 중…</p></div>
+
     <h3 class="ov-h">추적성</h3>
     <div class="ov-meter"><div class="ov-meter-bar"><span style="width:${pct(covered, nonMeeting.length)}%"></span></div>
       <p>회의·인터뷰와 이어진 문서 <b>${pct(covered, nonMeeting.length)}%</b> (${covered.toLocaleString()} / ${nonMeeting.length.toLocaleString()})</p></div>
@@ -947,9 +950,43 @@ function openOverview({ back = false } = {}) {
       <span class="li-main"><span class="li-t">${esc(n.title)}</span><span class="li-s">${[n.docType, n.date].filter(Boolean).map(esc).join(' · ')}</span></span></button>`).join('')}</div>`;
   $('panel-body').scrollTop = 0;
   refresh();
+  fillUsage();
+}
+
+/* ───────────── 사용 현황 (최근 30일) ───────────── */
+async function fillUsage() {
+  const u = await loadUsage(30);
+  const box = $('ov-usage'); if (!box) return;
+  if (!u) {
+    box.innerHTML = `<h3 class="ov-h">사용 현황</h3><p class="hint" style="margin:0">${LOCAL ? '웹사이트에 로그인해서 볼 때만 보여요.' : '아직 꺼져 있어요. Supabase SQL Editor 에서 <code>supabase/usage.sql</code> 을 한 번 실행하면 켜져요.'}</p>`;
+    return;
+  }
+  const byKey = new Map(G.nodes.filter((n) => n.type !== 'topic').map((n) => [keyOf(n), n]));
+  // 최근 30일 일별 조회 막대
+  const days = [], m = new Map((u.daily || []).map((d) => [String(d.day).slice(0, 10), d]));
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(Date.now() + 9 * 3600e3 - i * 864e5).toISOString().slice(0, 10); // 한국 날짜
+    days.push({ d, n: m.get(d)?.n || 0, u: m.get(d)?.u || 0 });
+  }
+  const max = Math.max(1, ...days.map((x) => x.n));
+  const top = (u.top || []).map((t) => ({ ...t, node: byKey.get(t.key) }));
+  box.innerHTML = `
+    <h3 class="ov-h">사용 현황 <span class="ov-h-s">최근 30일 · 사람별 기록은 보이지 않아요</span></h3>
+    <div class="ov-tiles ov-tiles-sm">
+      <div class="ov-tile"><div class="ov-n">${u.users_7d}</div><div class="ov-l">이번 주 이용자</div><div class="ov-s">30일 ${u.users}명</div></div>
+      <div class="ov-tile"><div class="ov-n">${u.views_7d.toLocaleString()}</div><div class="ov-l">이번 주 조회</div><div class="ov-s">30일 ${u.views.toLocaleString()}회</div></div>
+    </div>
+    <div class="ov-spark" aria-label="최근 30일 일별 조회">${days.map((x) => `<span title="${x.d} · 조회 ${x.n}회 · ${x.u}명" style="height:${Math.max(2, Math.round((x.n / max) * 100))}%"></span>`).join('')}</div>
+    <h4 class="ov-h4">많이 본 문서</h4>
+    ${top.length ? `<div class="ov-recent">${top.map((t) => `<button type="button" class="li-item" ${t.node ? `data-id="${t.node.id}"` : 'disabled'}><span class="dot" style="background:${TYPES[t.node?.type]?.light || '#999'}"></span>
+      <span class="li-main"><span class="li-t">${esc(t.node?.title || t.title || t.key)}</span><span class="li-s">조회 ${t.n}회 · ${t.u}명${t.node ? '' : ' · 지금은 없는 문서'}</span></span></button>`).join('')}</div>` : '<p class="hint" style="margin:0">아직 기록이 없어요.</p>'}
+    <h4 class="ov-h4">찾지 못한 검색어 <span class="ov-h-s">자료가 부족한 주제일 수 있어요</span></h4>
+    ${(u.misses || []).length ? `<div class="chips">${u.misses.map((x) => `<button type="button" class="chip" data-miss="${esc(x.q)}">${esc(x.q)}<span class="n">${x.n}</span></button>`).join('')}</div>` : '<p class="hint" style="margin:0">없어요.</p>'}`;
 }
 
 $('panel-body').addEventListener('click', (e) => {
+  const miss = e.target.closest('[data-miss]');
+  if (miss) { sIn.value = miss.dataset.miss; sIn.focus(); sIn.dispatchEvent(new Event('input')); return; }
   const ov = e.target.closest('[data-ov]');
   if (ov) {
     const labels = { reqNoMeeting: '회의 근거가 없는 요구사항', noDomain: '대분류가 비어 있는 요구사항', brokenNotes: '깨진 링크가 있는 문서', orphans: '아무 연결도 없는 문서', cancelled: '취소된 요구사항' };
@@ -1197,6 +1234,9 @@ sIn.addEventListener('input', () => {
     return { n, score, hit: inBody };
   }).filter(Boolean).sort((a, b) => b.score - a.score || b.n.degree - a.n.degree).slice(0, 12);
   sIdx = 0; sQuery = q; renderSearch();
+  // 결과가 없는 검색어는 잠시 뒤에도 그대로면 기록한다 (어떤 자료가 부족한지 알기 위해)
+  clearTimeout(sIn._miss);
+  if (!sList.length && q.length >= 2 && FULL) sIn._miss = setTimeout(() => { if (sIn.value.trim().toLowerCase() === q && !sList.length) logEvent('search_miss', q); }, 1500);
 });
 function renderSearch() {
   sOut.hidden = false;
@@ -1243,6 +1283,7 @@ async function openNote(id, { fromHash = false, back = false } = {}) {
   state.selected = id;
   if (!fromHash) setHash(n.props?.['요구사항ID'] ? '#/req/' + encodeURIComponent(n.props['요구사항ID']) : '#/note/' + encodeURIComponent(id));
   rememberRecent(id);
+  if (n.type !== 'topic') logEvent('view', keyOf(n), n.title);
   if (!F.reader) { showNodeCard(n); focusNode(id); refresh(); return; }
   document.querySelectorAll('.req-table tr.on').forEach((r) => r.classList.remove('on'));
   document.querySelector(`.req-table tr[data-id="${id}"]`)?.classList.add('on');

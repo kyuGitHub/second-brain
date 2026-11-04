@@ -448,3 +448,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .req-table tr.top .c-lv, .req-table tr.top .c-id { font-weight: 600; }
 .req-table .c-lv { white-space: nowrap; }
 .c-top { color: #5b3fd1; font-weight: 600; margin-right: 2px; }
+
+/* 사용 현황 */
+.ov-tiles-sm { margin-top: 0; }
+.ov-spark { display: flex; align-items: flex-end; gap: 2px; height: 44px; margin: 12px 0 4px; padding: 0 2px; border-bottom: 1px solid var(--line, rgba(0,0,0,.08)); }
+.ov-spark span { flex: 1; background: var(--ink-3); opacity: .55; border-radius: 2px 2px 0 0; min-height: 2px; }
+.ov-spark span:hover { opacity: 1; }
+.ov-h4 { font-size: 12px; font-weight: 600; color: var(--ink-2); margin: 16px 0 8px; display: flex; gap: 8px; align-items: baseline; }
+.ov-h4 .ov-h-s { font-size: 11px; }

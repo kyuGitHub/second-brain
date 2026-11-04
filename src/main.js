@@ -1215,8 +1215,64 @@ function tableRows() {
     || T_COLS[0].get(a).localeCompare(T_COLS[0].get(b), 'en', { numeric: true }));
   return rows;
 }
+/* ───────────── 회의록·인터뷰 표 (카테고리 탭이 '회의록·인터뷰'일 때) ───────────── */
+const relReqs = (n) => [...(nbr.get(n.id) || [])].filter((id) => byId.get(id)?.props?.['요구사항ID']).length;
+const M_COLS = [
+  { k: 'date', label: '날짜', get: (n) => n.title.match(/^\d{4}-\d{2}-\d{2}/)?.[0] || n.date || '' }, // 제목 앞 회의 날짜 우선
+  { k: 'title', label: '제목', get: (n) => n.title },
+  { k: 'kind', label: '유형', get: (n) => n.docType || '' },
+  { k: 'cat', label: '분류', get: (n) => (n.cats?.mtg?.[0] || []).map(catLabel).join(' › ') },
+  { k: 'reqs', label: '관련 요구사항', get: relReqs, num: true },
+  { k: 'links', label: '연결', get: (n) => n.degree, num: true },
+  { k: 'chg', label: '최근 변경', get: (n) => (lastChange.get(keyOf(n))?.at || '').slice(0, 10) },
+];
+let mSort = { k: 'date', dir: -1 }, mKind = 'all', mDays = 'all';
+function meetingRows() {
+  let rows = G.nodes.filter((n) => !n.aux && n.type !== 'topic' && n.cats?.mtg?.length && (!state.catSet || state.catSet.has(n.id)));
+  if (mKind !== 'all') rows = rows.filter((n) => (n.docType || '(없음)') === mKind);
+  if (mDays !== 'all') { const since = new Date(Date.now() - Number(mDays) * 864e5).toISOString().slice(0, 10); rows = rows.filter((n) => String(n.date || '') >= since); }
+  if (tQuery) rows = rows.filter((n) => (n.title + ' ' + Object.values(n.props || {}).join(' ') + ' ' + bodyText(n)).includes(tQuery));
+  const sc = M_COLS.find((c) => c.k === mSort.k);
+  rows.sort((a, b) => (sc.num ? sc.get(a) - sc.get(b) : String(sc.get(a)).localeCompare(String(sc.get(b)), 'ko', { numeric: true })) * mSort.dir
+    || String(b.date || '').localeCompare(String(a.date || '')));
+  return rows;
+}
+function renderMeetingTable(box) {
+  const all = G.nodes.filter((n) => !n.aux && n.type !== 'topic' && n.cats?.mtg?.length);
+  const scope = state.cat ? state.cat.path.map(catLabel).join(' › ') : '전체 회의록·인터뷰';
+  const rows = meetingRows();
+  // 관련 요구사항이 하나도 없으면(아직 연결 전) 열을 숨긴다
+  const cols = M_COLS.filter((c) => c.k !== 'reqs' || all.some((n) => relReqs(n) > 0));
+  const opt = (v, cur, label) => `<option value="${esc(v)}"${v === cur ? ' selected' : ''}>${esc(label)}</option>`;
+  const kinds = [...countBy(all.map((n) => n.docType || '(없음)')).entries()];
+  const focusedQ = document.activeElement?.id === 't-q';
+  box.innerHTML = `
+    <div class="t-head">
+      <div><div class="t-eyebrow">회의록·인터뷰 표</div><h2 class="t-title">${esc(scope)}</h2></div>
+      <div class="t-tools">
+        <input type="search" id="t-q" placeholder="표 안에서 찾기 (본문 포함)" value="${esc(tQuery)}" autocomplete="off" />
+        <select id="m-kind" aria-label="유형">${opt('all', mKind, '유형 전체')}${kinds.map(([k, v]) => opt(k, mKind, `${k} (${v})`)).join('')}</select>
+        <select id="m-days" aria-label="기간">${opt('all', mDays, '기간 전체')}${opt('7', mDays, '최근 7일')}${opt('30', mDays, '최근 30일')}${opt('90', mDays, '최근 90일')}</select>
+        <button type="button" class="ghost-btn" id="t-csv">CSV 내려받기</button>
+      </div>
+    </div>
+    <div class="t-count">${rows.length.toLocaleString()}건${rows.length !== all.length ? ` / 전체 ${all.length.toLocaleString()}건` : ''}</div>
+    <div class="t-wrap"><table class="req-table mtg-table" data-mode="mtg">
+      <thead><tr>${cols.map((c) => `<th data-k="${c.k}" class="${c.num ? 'num' : ''}" aria-sort="${mSort.k === c.k ? (mSort.dir > 0 ? 'ascending' : 'descending') : 'none'}">${c.label}${mSort.k === c.k ? (mSort.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map((n) => `<tr data-id="${n.id}" class="${state.selected === n.id ? 'on' : ''}" tabindex="0">${cols.map((c) => `<td class="${c.num ? 'num' : ''} c-${c.k}">${esc(c.get(n))}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>${rows.length ? '' : '<p class="hint" style="padding:16px">조건에 맞는 회의록·인터뷰가 없어요.</p>'}</div>`;
+  const q = $('t-q');
+  q.oninput = () => { tQuery = q.value.trim().toLowerCase(); clearTimeout(q._t); q._t = setTimeout(renderTable, 180); };
+  q.onfocus = () => ensureFullText(() => tQuery && renderTable());
+  if (focusedQ) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+  $('m-kind').onchange = (e) => { mKind = e.target.value; renderTable(); };
+  $('m-days').onchange = (e) => { mDays = e.target.value; renderTable(); };
+  $('t-csv').onclick = () => downloadCsv(rows, cols, 'RIS_meetings');
+}
+
 function renderTable() {
   const box = $('table-view'); if (!box || !G || !VIEWS[state.view].table) return;
+  if (state.scheme === 'mtg') { renderMeetingTable(box); return; }
   const all = G.nodes.filter((n) => !n.aux && n.props?.['요구사항ID']);
   const scope = state.cat ? state.cat.path.map(catLabel).join(' › ') : '전체 요구사항';
   const rows = tableRows();
@@ -1225,7 +1281,7 @@ function renderTable() {
   const focusedQ = document.activeElement?.id === 't-q';
   box.innerHTML = `
     <div class="t-head">
-      <div><div class="t-eyebrow">요구사항 표${state.cat && state.cat.scheme !== 'req' ? ' · 회의록 분류는 표에 적용되지 않아요' : ''}</div><h2 class="t-title">${esc(scope)}</h2></div>
+      <div><div class="t-eyebrow">요구사항 표</div><h2 class="t-title">${esc(scope)}</h2></div>
       <div class="t-tools">
         <input type="search" id="t-q" placeholder="표 안에서 찾기" value="${esc(tQuery)}" autocomplete="off" />
         <select id="t-lv" aria-label="수준">${opt('all', tLv, '수준 전체')}${opt('상위', tLv, '상위 (RFP)')}${opt('세부', tLv, '세부')}</select>
@@ -1252,7 +1308,11 @@ function renderTable() {
 }
 $('table-view').addEventListener('click', (e) => {
   const th = e.target.closest('th[data-k]');
-  if (th) { tSort = { k: th.dataset.k, dir: tSort.k === th.dataset.k ? -tSort.dir : 1 }; renderTable(); return; }
+  if (th) {
+    if (th.closest('[data-mode="mtg"]')) mSort = { k: th.dataset.k, dir: mSort.k === th.dataset.k ? -mSort.dir : (th.dataset.k === 'date' || th.dataset.k === 'chg' ? -1 : 1) };
+    else tSort = { k: th.dataset.k, dir: tSort.k === th.dataset.k ? -tSort.dir : 1 };
+    renderTable(); return;
+  }
   const tr = e.target.closest('tr[data-id]');
   if (tr) openNote(tr.dataset.id);
 });
@@ -1260,14 +1320,14 @@ $('table-view').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   const tr = e.target.closest('tr[data-id]'); if (tr) openNote(tr.dataset.id);
 });
-function downloadCsv(rows) {
+function downloadCsv(rows, cols = T_COLS, name = 'RIS_requirements') {
   const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = [T_COLS.map((c) => q(c.label)).join(','), ...rows.map((n) => T_COLS.map((c) => q(c.get(n))).join(','))];
+  const lines = [cols.map((c) => q(c.label)).join(','), ...rows.map((n) => cols.map((c) => q(c.get(n))).join(','))];
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }); // 엑셀에서 한글이 깨지지 않도록 BOM
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   // 한글 파일 이름은 일부 브라우저에서 'download' 로 바뀌어서 영문으로 둔다
-  a.download = `RIS_requirements_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `${name}_${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   toast(`${rows.length.toLocaleString()}건을 CSV로 내려받았어요`);

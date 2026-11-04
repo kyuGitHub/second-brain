@@ -491,3 +491,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .ask-send { border: 0; border-radius: 999px; padding: 8px 16px; font: inherit; font-size: 13px; font-weight: 600; background: var(--ink); color: var(--paper); cursor: pointer; }
 .ask-send:disabled { opacity: .45; cursor: wait; }
 @media (prefers-reduced-motion: reduce) { .ask-dots i { animation: none; } .search { transition: none; } }
+
+/* 회의록·인터뷰 표 */
+.req-table.mtg-table td.c-title { white-space: normal; min-width: 280px; }
+.req-table.mtg-table td.c-cat { white-space: normal; min-width: 160px; color: var(--ink-2); }
+.req-table.mtg-table .c-date { font-variant-numeric: tabular-nums; color: var(--ink-2); }

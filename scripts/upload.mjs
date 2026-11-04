@@ -1,5 +1,5 @@
 // vault 폴더의 노트로 그래프를 만들어 Supabase 비공개 저장소에 올린다.
-// 웹사이트는 로그인한 열람 명단 사용자에게만 이 데이터를 보여준다.
+// 웹사이트는 Supabase 에 추가된 계정으로 로그인한 사용자에게만 이 데이터를 보여준다.
 // 실행: npm run upload   (보통은 deploy.bat / deploy.command 가 대신 실행)
 //
 // Supabase 주소·공개 키는 .env.production 에 들어 있어요.

@@ -13,15 +13,15 @@ D:\RIS Project (원본 볼트)
 GitHub (프로그램만) ──▶ Vercel 자동 배포 ──▶ 접속 → 로그인 → 비공개 저장소에서 그래프 받기
 ```
 
-- **GitHub 저장소와 웹사이트 파일에는 노트가 없어요.** 노트 데이터는 Supabase 비공개 저장소에만 있고, `brain_members` 명단에 있는 계정이 로그인해야 받을 수 있어요.
+- **GitHub 저장소와 웹사이트 파일에는 노트가 없어요.** 노트 데이터는 Supabase 비공개 저장소에만 있고, Supabase 에 추가한 계정으로 로그인해야 받을 수 있어요.
 - 내 PC에서 `start.bat` 으로 볼 때는 로그인 없이 원본 볼트를 바로 읽어요.
 
 ## 1. 처음 한 번만: Supabase (프로젝트 `knuenhkquktmxwawkawv`)
 
-연결 정보(주소·공개 anon 키)는 `.env.production` 에 들어 있어서 따로 설정할 필요가 없어요. 이 두 값은 브라우저로 전달되는 공개용 값이고, 데이터 보호는 로그인 + 열람 명단 + 비공개 저장소 규칙이 맡아요. **`service_role` 키는 절대 저장소에 넣지 마세요.**
+연결 정보(주소·공개 anon 키)는 `.env.production` 에 들어 있어서 따로 설정할 필요가 없어요. 이 두 값은 브라우저로 전달되는 공개용 값이고, 데이터 보호는 로그인(가입 막음) + 비공개 저장소 규칙이 맡아요. **`service_role` 키는 절대 저장소에 넣지 마세요.**
 
 1. Supabase 대시보드 → **SQL Editor → New query** 에 `supabase/schema.sql` 전체를 붙여넣고 **Run**
-2. 같은 화면에서 내 이메일을 명단에 넣기 (업로드 권한 포함):
+2. 같은 화면에서 **업로드할 내 계정만** 명단에 넣기 (보는 사람은 넣을 필요 없어요):
    ```sql
    insert into public.brain_members (email, can_upload) values ('내이메일@example.com', true)
    on conflict (email) do update set can_upload = excluded.can_upload;
@@ -33,7 +33,9 @@ GitHub (프로그램만) ──▶ Vercel 자동 배포 ──▶ 접속 → 로
    - **Send invitation**: 메일의 링크를 열면 비밀번호 설정 화면이 나와요
    - 또는 **Create new user** 로 비밀번호를 직접 정하고 **Auto Confirm User** 켜기
 
-다른 사람에게 보여주려면: 계정 초대 + `brain_members` 에 이메일 추가 (`can_upload` 은 false).
+다른 사람에게 보여주려면: **Authentication → Users → Add user** 로 계정만 만들면 돼요 (명단 등록 필요 없음).
+- ⚠ **Authentication → Sign In / Providers → "Allow new users to sign up" 은 꼭 꺼 두세요.** 켜져 있으면 아무나 가입해서 볼 수 있어요.
+- 예전 방식(명단에 있는 사람만 보기)에서 바꿀 때는 `supabase/open-access.sql` 을 한 번 실행해요.
 
 **(선택) 사용 현황 켜기**: SQL Editor 에서 `supabase/usage.sql` 을 한 번 실행하면 개요에 "사용 현황"이 보여요 (이번 주 이용자·조회 수, 일별 조회, 많이 본 문서, 찾지 못한 검색어). 사람별 기록은 누구도 직접 볼 수 없고 합계만 보여요. 실행하지 않아도 사이트는 그대로 동작해요.
 
@@ -42,7 +44,7 @@ GitHub (프로그램만) ──▶ Vercel 자동 배포 ──▶ 접속 → 로
 2. **Edge Functions → Deploy a new function → Via Editor** → 이름 `ask`, `supabase/functions/ask/index.ts` 내용 붙여넣기 → Deploy
    - 대시보드가 주소용 이름을 따로 붙이면(예: `.../functions/v1/swift-api`) 그 이름을 `.env.production` 의 `VITE_ASK_FUNCTION` 에 적어요 (지금: `swift-api`)
 3. **Edge Functions → Secrets** 에 `ANTHROPIC_API_KEY` (Claude API 키) 추가 — 키는 서버에만 있고 브라우저·GitHub 로 나가지 않아요
-- 동작: 브라우저가 질문과 관련된 문서를 최대 16개(요구사항·회의록 섞어서) 고르고, 누락·반영 여부 질문이면 요구사항 전체 목록도 함께 보냄 → `ask` 함수가 로그인·명단·사용량(1인 1시간 30회)을 확인 → Claude(`claude-opus-5-5`, effort medium)가 그 문서만 근거로 답 → 질문·답·근거 문서·토큰 수를 `brain_questions` 에 저장
+- 동작: 브라우저가 질문과 관련된 문서를 최대 16개(요구사항·회의록 섞어서) 고르고, 누락·반영 여부 질문이면 요구사항 전체 목록도 함께 보냄 → `ask` 함수가 로그인·사용량(1인 1시간 30회)을 확인 → Claude(`claude-opus-5-5`, effort medium)가 그 문서만 근거로 답 → 질문·답·근거 문서·토큰 수를 `brain_questions` 에 저장
 - 질문 기록은 본인만 볼 수 있고, 개요의 사용 현황에는 질문 수 합계만 나와요.
 
 ## 2. 웹사이트
@@ -138,7 +140,7 @@ GitHub (프로그램만) ──▶ Vercel 자동 배포 ──▶ 접속 → 로
 ├─ start.bat  / start.command    내 PC에서 보기
 ├─ config.json                   설정
 ├─ .env.production               Supabase 주소·공개 키 (공개용 값)
-├─ supabase/schema.sql           열람 명단 + 비공개 저장소
+├─ supabase/schema.sql           업로드 명단 + 비공개 저장소
 ├─ scripts/  sync-vault · build-graph · upload · dev
 └─ src/      main.js(그래프) · auth.js(로그인) · data.js(데이터 받기)
 ```

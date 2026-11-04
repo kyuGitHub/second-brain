@@ -4,7 +4,7 @@
 -- 어드민 제너레이터와 같은 Supabase 프로젝트를 써도 됩니다. 그 경우에도 아래 1절의 명단에 있는 계정만 그래프를 볼 수 있어요.
 
 -- 1. 열람 허용 명단 -----------------------------------------------------------
--- 로그인 계정이 있어도 이 명단에 이메일이 있어야 세컨브레인 데이터를 읽고 올릴 수 있어요.
+-- 노트를 올리는(업로드) 계정만 이 명단에 넣어요. 보기는 Supabase 에 추가한 계정이면 누구나 가능해요.
 create table if not exists public.brain_members (
   email      text primary key,
   can_upload boolean not null default false,   -- true: deploy.bat 으로 노트를 올릴 수 있음
@@ -15,14 +15,18 @@ drop policy if exists "brain_members: own read" on public.brain_members;
 create policy "brain_members: own read" on public.brain_members
   for select to authenticated using (lower(email) = lower(auth.jwt() ->> 'email'));
 
--- 명단 확인용 함수 (스토리지 정책에서 사용)
+-- 권한 확인용 함수 (스토리지·기록 정책에서 사용)
+-- 보기: Supabase 에 추가한 로그인 계정이면 누구나 (가입 허용은 꺼 둘 것) · 올리기: brain_members 의 can_upload 계정만
 create or replace function public.is_brain_member(want_upload boolean default false)
 returns boolean language sql stable security definer set search_path = public as $$
-  select exists (
-    select 1 from public.brain_members m
-     where lower(m.email) = lower(auth.jwt() ->> 'email')
-       and (not want_upload or m.can_upload)
-  );
+  select case
+    when not want_upload then
+      auth.uid() is not null and coalesce((auth.jwt() ->> 'is_anonymous')::boolean, false) = false
+    else exists (
+      select 1 from public.brain_members m
+       where lower(m.email) = lower(auth.jwt() ->> 'email') and m.can_upload
+    )
+  end;
 $$;
 
 -- ★ 여기에 내 이메일을 넣어 실행하세요 (업로드 권한 포함)

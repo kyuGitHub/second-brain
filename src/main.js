@@ -95,7 +95,7 @@ async function load() {
     const detail = esc(err?.message || err?.error || String(err || ''));
     showEmpty(LOCAL
       ? '그래프 데이터를 찾지 못했어요.<br>터미널에서 <b>npm run graph</b> 를 먼저 실행해 주세요.'
-      : '그래프 데이터를 불러오지 못했어요.<br>아직 노트를 올리기 전이거나, 이 계정에 열람 권한이 없어요.<br>관리자에게 열람 명단 등록을 요청해 주세요.'
+      : '그래프 데이터를 불러오지 못했어요.<br>아직 노트를 올리기 전이거나, 잠시 연결이 불안정해요.<br>새로 고쳐도 계속되면 관리자에게 알려 주세요.'
         + (detail ? `<br><span style="opacity:.55;font-size:12px">(${detail})</span>` : ''));
     return;
   }

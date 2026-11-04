@@ -47,13 +47,13 @@ Deno.serve(async (req) => {
   const auth = req.headers.get('Authorization') || '';
   const url = Deno.env.get('SUPABASE_URL')!;
   const anon = Deno.env.get('SUPABASE_ANON_KEY')!;
-  // 사용자 본인 권한으로 DB 를 다룬다 (열람 명단·본인 기록 규칙이 그대로 적용됨)
+  // 사용자 본인 권한으로 DB 를 다룬다 (로그인 확인·본인 기록 규칙이 그대로 적용됨)
   const sb = createClient(url, anon, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
 
   const { data: { user } } = await sb.auth.getUser(auth.replace(/^Bearer\s+/i, ''));
   if (!user) return reply(401, { error: '로그인이 필요해요.' });
   const { data: member } = await sb.rpc('is_brain_member', { want_upload: false });
-  if (!member) return reply(403, { error: '열람 명단에 없는 계정이에요.' });
+  if (!member) return reply(403, { error: '이 계정으로는 쓸 수 없어요.' });
 
   const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
   if (!apiKey) return reply(500, { error: 'ANTHROPIC_API_KEY 비밀 값이 설정되지 않았어요.' });

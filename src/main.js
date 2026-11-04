@@ -994,10 +994,14 @@ function askDocs(q, prevQs = []) {
     if (s && n.props?.['처리결과'] === '취소선') s *= 0.5;      // 취소된 요구사항도 낮게
     return { n, s };
   }).filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
-  const picked = [], LIMIT = 10, BUDGET = 32000; let used = 0;
-  for (const { n } of scored) {
+  // 요구사항과 회의록·참고 자료가 한쪽으로 쏠리지 않게 각각 최소 5개씩 먼저 고르고, 나머지는 점수순
+  const isReq = (n) => !!n.props?.['요구사항ID'];
+  const order = [...scored.filter((x) => isReq(x.n)).slice(0, 5), ...scored.filter((x) => !isReq(x.n)).slice(0, 5)];
+  for (const x of scored) if (!order.includes(x)) order.push(x);
+  const picked = [], LIMIT = 16, BUDGET = 56000; let used = 0;
+  for (const { n } of order) {
     if (picked.length >= LIMIT || used >= BUDGET) break;
-    const text = (FULL?.[n.id] || n.search || '').slice(0, Math.min(3500, BUDGET - used));
+    const text = (FULL?.[n.id] || n.search || '').slice(0, Math.min(4000, BUDGET - used));
     used += text.length;
     picked.push({ n, doc: {
       id: n.id, title: n.title, kind: n.props?.['요구사항ID'] ? `요구사항(${n.lv || '세부'})` : (n.docType || TYPES[n.type]?.ko || ''),
@@ -1005,6 +1009,17 @@ function askDocs(q, prevQs = []) {
     } });
   }
   return picked;
+}
+// "빠진 기능", "반영됐나" 같은 대조 질문이면 요구사항 전체 목록(ID·이름·분류)을 함께 보낸다
+function askCatalog(q) {
+  if (!/빠진|빠져|누락|없는 기능|반영(됐|되었|여부|안)|커버|대조|중복|몇\s?개/.test(q)) return '';
+  const reqs = G.nodes.filter((n) => n.props?.['요구사항ID'] && n.props['처리결과'] !== '취소선');
+  const line = (n) => [n.props['요구사항ID'], n.props['요구정의명'] || n.title, [n.props['업무'], n.props['대분류'], n.props['중분류']].filter(Boolean).join('>'), n.lv || ''].join(' | ');
+  // 질문에 나온 분류(예: ADMIN, 주택담보대출)가 있으면 그 범위만
+  const GENERIC = /^(요구사항|기능|회의록|회의|인터뷰|문서|화면|프로세스|공통)/;
+  const words = askTerms(q).words.filter((w) => !GENERIC.test(w));
+  const scoped = reqs.filter((n) => words.some((w) => [n.props['업무'], n.props['대분류'], n.props['중분류']].join(' ').toLowerCase().includes(w)));
+  return (scoped.length >= 20 ? scoped : reqs).map(line).join('\n').slice(0, 60000);
 }
 const mdHtml = (t) => marked.parse(String(t || '').replace(/</g, '&lt;'), { gfm: true, breaks: true });
 function askItemHtml(it, i) {
@@ -1014,7 +1029,7 @@ function askItemHtml(it, i) {
   const li = (n) => `<button type="button" class="li-item" data-id="${n.id}"><span class="dot" style="background:${TYPES[n.type]?.light}"></span><span class="li-main"><span class="li-t">${esc(n.title)}</span></span></button>`;
   return `<div class="ask-item-wrap">
     <div class="ask-q">${esc(it.q)}</div>
-    ${it.pending ? `<div class="ask-a ask-wait"><span class="ask-dots"><i></i><i></i><i></i></span> 관련 문서 ${it.refs?.length || 0}개를 보고 답을 만들고 있어요…</div>`
+    ${it.pending ? `<div class="ask-a ask-wait"><span class="ask-dots"><i></i><i></i><i></i></span> 관련 문서 ${it.refs?.length || 0}개를 보고 답을 만들고 있어요… (20~40초)</div>`
       : it.error ? `<div class="ask-a ask-err">${esc(it.error)}</div>`
       : `<div class="ask-a md" data-ans="${i}">${mdHtml(it.a)}</div>`}
     ${!it.pending && refs.length ? `<details class="ask-refs"${cited.length ? '' : ' open'}><summary>근거 문서 ${cited.length ? `${cited.length}개 (함께 본 문서 ${rest.length}개)` : `${refs.length}개`}</summary>
@@ -1049,7 +1064,7 @@ async function sendAsk(q) {
   askThread.push(it); renderAskThread();
   const btn = $('ask-send'); if (btn) btn.disabled = true;
   try {
-    const res = await askClaude({ question: q, docs: picked.map((p) => p.doc), history: prev.slice(-3).map((x) => ({ q: x.q, a: x.a })) });
+    const res = await askClaude({ question: q, docs: picked.map((p) => p.doc), catalog: askCatalog(q), history: prev.slice(-3).map((x) => ({ q: x.q, a: x.a })) });
     it.a = res.answer || '(빈 답)';
   } catch (e) { it.error = e.message; }
   it.pending = false;

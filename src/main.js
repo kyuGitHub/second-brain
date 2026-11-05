@@ -88,7 +88,7 @@ let g2 = null, g3 = null, data2 = null, data3 = null, pendingFit = true, bloom =
 /* ───────────── 데이터 불러오기 ───────────── */
 async function load() {
   try {
-    showEmpty('그래프를 불러오는 중이에요…');
+    showEmpty('<span class="spin" aria-hidden="true"></span>요구사항 데이터를 불러오는 중이에요…');
     G = await loadGraph();
     $('empty').hidden = true;
   } catch (err) {
@@ -1085,7 +1085,7 @@ function openAsk({ back = false, question = '' } = {}) {
     <p class="hint" style="margin:0 0 14px">질문과 관련된 문서를 찾아 Claude 가 그 문서만 보고 답해요. 답은 틀릴 수 있으니 근거 문서를 꼭 확인하세요.</p>
     <div id="ask-thread" class="ask-thread"></div>
     <form id="ask-form" class="ask-form">
-      <textarea id="ask-q" rows="3" maxlength="1000" placeholder="예: 주택담보대출 심사 단계 요구사항 요약해줘  (Enter 보내기 · Shift+Enter 줄바꿈)"></textarea>
+      <textarea id="ask-q" rows="3" maxlength="1000" placeholder="${isMobile() ? '질문을 입력하세요' : '예: 주택담보대출 심사 단계 요구사항 요약해줘  (Enter 보내기 · Shift+Enter 줄바꿈)'}"></textarea>
       <div class="ask-actions"><button type="button" class="link-btn" id="ask-new">새 대화</button><button type="submit" class="ask-send" id="ask-send">질문하기</button></div>
     </form>
     <h3 class="ov-h">내 질문 기록 <span class="ov-h-s">나만 볼 수 있어요</span></h3>
@@ -1472,8 +1472,16 @@ function pick(id) { const q = sIn.value.trim(); if (q.length >= 2) logEvent('sea
 // 검색창에서 묻는 질문은 새 대화로 시작한다
 function askFromSearch() { const q = sIn.value.trim(); sOut.hidden = true; sIn.value = ''; sIn.blur(); askThread.length = 0; openAsk({ question: q }); }
 $('ask-btn').addEventListener('click', () => { const q = sIn.value.trim(); sIn.value = ''; sOut.hidden = true; if (q.length >= 2) askThread.length = 0; openAsk(q.length >= 2 ? { question: q } : {}); });
+// 좁은 화면에서는 검색창 안내 문구를 짧게
+const narrowMq = matchMedia('(max-width: 860px)');
+const fitPlaceholder = () => { sIn.placeholder = narrowMq.matches ? '요구사항 검색' : '요구사항 ID · 이름 · 내용으로 찾기  ( / )'; };
+fitPlaceholder(); narrowMq.addEventListener?.('change', fitPlaceholder);
+$('skip-search').addEventListener('click', (e) => { e.preventDefault(); sIn.focus(); });
+const typing = () => { const el = document.activeElement; return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable); };
 document.addEventListener('keydown', (e) => {
-  if (F.search && e.key === '/' && document.activeElement !== sIn) { e.preventDefault(); sIn.focus(); }
+  if (e.key === '?' && !typing()) { e.preventDefault(); const d = $('kbd-help'); if (!d.open) d.showModal?.(); return; }
+  if (e.altKey && e.key === 'ArrowLeft' && !typing() && state.stack.length) { e.preventDefault(); $('panel-back').click(); return; }
+  if (F.search && e.key === '/' && document.activeElement !== sIn && !typing()) { e.preventDefault(); sIn.focus(); }
   if (e.key === 'Escape' && document.activeElement !== sIn && (state.selected || state.panel)) closePanel();
 });
 
@@ -1511,7 +1519,9 @@ async function openNote(id, { fromHash = false, back = false } = {}) {
   refresh();
 
   const t = TYPES[n.type];
-  const chips = [...n.topics.map((x) => `<button class="chip" data-topic="${esc(x)}">${esc(x)}</button>`), ...n.tags.map((x) => `<button class="chip" data-tag="${esc(x)}">#${esc(x)}</button>`)].join('');
+  // 분류 경로(업무·대분류·중분류)와 겹치는 주제, 문서 유형 태그(주제/…)는 빼서 덜 복잡하게
+  const crumbVals = new Set([n.props?.['업무'], n.props?.['대분류'], n.props?.['중분류']].filter(Boolean));
+  const chips = [...n.topics.filter((x) => !crumbVals.has(x)).map((x) => `<button class="chip" data-topic="${esc(x)}">${esc(x)}</button>`), ...n.tags.filter((x) => !/^주제\//.test(x)).map((x) => `<button class="chip" data-tag="${esc(x)}">#${esc(x)}</button>`)].join('');
   const meta = [n.date && `수정 ${n.date}`, n.docType, n.folder && n.folder.replace(/^\d+_/, ''), n.url && `<a href="${esc(n.url)}" target="_blank" rel="noopener">원문 링크 ↗</a>`].filter(Boolean).join('<span>·</span>');
   const body = $('panel-body');
   body.innerHTML = `
@@ -1524,7 +1534,7 @@ async function openNote(id, { fromHash = false, back = false } = {}) {
     ${propsHtml(n)}
     ${(() => { const c = lastChange.get(keyOf(n)); if (!c) return ''; const what = c.kind === '추가' ? '새로 추가됨' : c.fields.map((f) => f.f).join(', ') + ' 변경'; return `<div class="last-chg"><span>최근 변경</span> ${esc(fmtWhen(c.at))} · ${esc(what)} <a class="link-btn" href="#" data-goto-hist="1">이력 보기</a></div>`; })()}
     ${n.props?.['요구사항ID'] && !G.links.some((l) => (l.source === n.id && l.type === 'evidence') || (l.target === n.id && l.type === 'meeting'))
-      ? '<div class="hint-box">근거 회의가 연결되지 않은 요구사항이에요. 옵시디언에서 <code>근거회의: "[[회의록 이름]]"</code> 을 채우면 다음 업로드부터 연결돼요.</div>' : ''}
+      ? '<details class="hint-mini"><summary>근거 회의 미연결</summary>옵시디언에서 <code>근거회의: "[[회의록 이름]]"</code> 을 채우면 다음 업로드부터 연결돼요.</details>' : ''}
     <div class="md" id="md">${n.type === 'topic' ? '' : '<p style="color:#8b8a82">불러오는 중…</p>'}</div>
     ${historyHtml(n)}
     <div class="rel">${relatedHtml(n)}</div>`;

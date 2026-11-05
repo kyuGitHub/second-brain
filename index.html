@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
+  <a href="#search" class="skip-link" id="skip-search">검색으로 건너뛰기</a>
   <div id="app" class="app">
     <!-- 왼쪽: 탐색 패널 -->
     <aside id="sidebar" class="sidebar" aria-label="그래프 설정">
@@ -65,7 +66,7 @@
       <div class="search" data-feature="search" hidden>
         <span class="search-ic" aria-hidden="true">⌕</span>
         <input id="search" type="search" placeholder="요구사항 ID · 이름 · 내용으로 찾기  ( / )" autocomplete="off" />
-        <button type="button" id="ask-btn" class="ask-btn" title="AI에게 질문하기 (Shift+Enter)">✦ AI 질문</button>
+        <button type="button" id="ask-btn" class="ask-btn" title="AI에게 질문하기 (Shift+Enter)" aria-label="AI 질문"><span aria-hidden="true">✦</span><span class="ask-lbl"> AI 질문</span></button>
         <ul id="search-results" class="search-results" hidden></ul>
       </div>
       <div id="graph2d" class="graph"></div>
@@ -98,6 +99,17 @@
       <div id="panel-body" class="panel-body"></div>
     </article>
   </div>
+  <dialog id="kbd-help" class="kbd-help" aria-labelledby="kbd-title">
+    <h2 id="kbd-title">단축키</h2>
+    <dl>
+      <dt><kbd>/</kbd></dt><dd>검색창으로 이동</dd>
+      <dt><kbd>Shift</kbd> + <kbd>Enter</kbd></dt><dd>검색어로 AI에게 질문</dd>
+      <dt><kbd>Esc</kbd></dt><dd>검색 결과·오른쪽 창 닫기</dd>
+      <dt><kbd>Alt</kbd> + <kbd>←</kbd></dt><dd>오른쪽 창에서 뒤로</dd>
+      <dt><kbd>?</kbd></dt><dd>이 도움말 열기</dd>
+    </dl>
+    <form method="dialog"><button class="ghost-btn" autofocus>닫기</button></form>
+  </dialog>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

@@ -86,6 +86,35 @@ let labelAlways = new Set(); // 항상 이름을 보여줄 노드 (연결이 많
 let byId = new Map(), nbr = new Map(), topicColorMap = new Map(), thesisZone = new Set(), dateDomain = [0, 1];
 let g2 = null, g3 = null, data2 = null, data3 = null, pendingFit = true, bloom = null;
 
+/* ───────────── 오류 기록·진단 정보 ───────────── */
+// 화면에서 난 오류를 모아 두었다가 '진단 정보'에서 보여준다 (최근 20개, 이 탭에서만)
+const ERRORS = [];
+const noteError = (msg) => {
+  ERRORS.unshift({ at: new Date().toISOString(), msg: String(msg).slice(0, 300) });
+  ERRORS.length = Math.min(ERRORS.length, 20);
+  if (!noteError.told) { noteError.told = true; setTimeout(() => toast('문제가 생겼어요. 계속되면 왼쪽 아래 "진단 정보"를 복사해 알려 주세요.'), 0); }
+};
+window.addEventListener('error', (e) => noteError(`${e.message} @${(e.filename || '').split('/').pop()}:${e.lineno}`));
+window.addEventListener('unhandledrejection', (e) => noteError('Promise: ' + (e.reason?.message || e.reason)));
+$('app-ver').textContent = 'v' + __APP_VERSION__;
+function diagText() {
+  const lines = [
+    `앱 버전: ${__APP_VERSION__} (빌드 ${__BUILD_TIME__})`,
+    `실행 모드: ${LOCAL ? '내 PC 미리보기' : '웹'} · 주소: ${location.origin}${location.pathname}${location.hash}`,
+    `데이터: ${G ? `업로드 ${G.meta.builtAt} · 형식 ${G.meta.format || 1} · 노드 ${G.nodes.length} · 연결 ${G.links.length}` : '아직 못 불러옴'}`,
+    `변경 이력: ${HISTORY.length}건 · 본문 검색 데이터: ${FULL ? '받음' : '아직'} · AI 함수: ${import.meta.env.VITE_ASK_FUNCTION || 'ask'}`,
+    `화면: ${state.view} 보기 · 카테고리 ${state.scheme}${state.cat ? ' › ' + state.cat.path.join(' › ') : ''} · 패널 ${state.panel?.kind || '닫힘'}`,
+    `브라우저: ${navigator.userAgent}`,
+    `창 크기: ${innerWidth}×${innerHeight} · 언어 ${navigator.language}`,
+    '', `최근 오류 ${ERRORS.length}개:`, ...(ERRORS.length ? ERRORS.map((e) => `- ${e.at} ${e.msg}`) : ['- 없음']),
+  ];
+  return lines.join('\n');
+}
+$('diag-btn').addEventListener('click', () => { $('diag-text').textContent = diagText(); $('diag').showModal?.(); });
+$('diag-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(diagText()); toast('진단 정보를 복사했어요'); } catch { toast('복사하지 못했어요. 글자를 직접 선택해 복사해 주세요'); }
+});
+
 /* ───────────── 데이터 불러오기 ───────────── */
 async function load() {
   try {
@@ -1428,8 +1457,14 @@ function snippet(n, w) {
   const i = raw.toLowerCase().indexOf(w);
   if (i < 0) return '';
   const a = Math.max(0, i - 28), b = Math.min(raw.length, i + w.length + 50);
-  let out = esc(raw.slice(a, b));
-  for (const x of sQuery.split(/\s+/).filter((x) => x.length > 0 && x !== 'mark')) out = out.replace(new RegExp(esc(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), (m) => `<mark>${m}</mark>`);
+  const part = raw.slice(a, b), low = part.toLowerCase();
+  // 원문 글자에서 검색어 위치를 먼저 찾고, 조각마다 따로 이스케이프 (HTML 태그·&amp; 를 건드리지 않음)
+  const hits = [];
+  for (const x of sQuery.split(/\s+/).filter(Boolean)) { let k = low.indexOf(x); while (k >= 0) { hits.push([k, k + x.length]); k = low.indexOf(x, k + x.length); } }
+  hits.sort((p, q) => p[0] - q[0]);
+  let out = '', pos = 0;
+  for (const [s0, e0] of hits) { if (s0 < pos) continue; out += esc(part.slice(pos, s0)) + '<mark>' + esc(part.slice(s0, e0)) + '</mark>'; pos = e0; }
+  out += esc(part.slice(pos));
   return (a ? '…' : '') + out + (b < raw.length ? '…' : '');
 }
 const sIn = $('search'), sOut = $('search-results');
@@ -1555,7 +1590,11 @@ async function openNote(id, { fromHash = false, back = false } = {}) {
   if (n.type === 'topic') { $('md').remove(); return; }
   try {
     const html = await loadNoteHtml(n.file);
-    if (state.selected === id) { $('md').innerHTML = html ? cleanNote(html) : '<p style="color:#8b8a82">본문이 비어 있어요.</p>'; linkifyIds($('md'), n.id); }
+    if (state.selected === id) {
+      $('md').innerHTML = html ? cleanNote(html) : '<p style="color:#8b8a82">본문이 비어 있어요.</p>';
+      if (!LOCAL) $('md').querySelectorAll('img[src^="data/assets"]').forEach((im) => { const s = document.createElement('span'); s.className = 'img-off'; s.textContent = `🖼 그림(${im.alt || '첨부'})은 옵시디언에서 볼 수 있어요`; im.replaceWith(s); });
+      linkifyIds($('md'), n.id);
+    }
   } catch {
     if (state.selected === id) $('md').innerHTML = '<p style="color:#8b8a82">본문을 불러오지 못했어요.</p>';
   }
@@ -1677,5 +1716,9 @@ const fitTable = () => { const open = !$('panel').hidden && !isMobile(); const w
 new MutationObserver(fitTable).observe($('panel'), { attributes: true, attributeFilter: ['hidden', 'class'] });
 window.addEventListener('resize', fitTable);
 // 그래프 라벨은 캔버스에 그려서, Pretendard 글자가 내려받아지면 다시 그려 준다
-document.fonts?.addEventListener?.('loadingdone', () => { if (!G) return; if (g3) style3d(); refresh(); });
+let fontTimer = 0;
+document.fonts?.addEventListener?.('loadingdone', () => {
+  clearTimeout(fontTimer);
+  fontTimer = setTimeout(() => { if (!G) return; if (g3 && !$('graph3d').hidden) style3d(); refresh(); }, 400); // 글꼴 조각이 여러 번 내려와도 한 번만
+});
 gate(load);

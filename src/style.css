@@ -530,3 +530,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .ask-src li { display: flex; flex-direction: column; font-size: 13px; }
 .ask-src a { color: var(--ink); text-decoration: underline; text-underline-offset: 2px; word-break: break-all; }
 .ask-src span { font-size: 11.5px; color: var(--ink-3); }
+
+/* 진단 정보·푸터 */
+.sb-foot { display: flex; flex-direction: column; gap: 4px; }
+.foot-r { font-size: 11px; color: var(--ink-3); }
+.foot-r .link-btn { font-size: 11px; }
+.diag { width: min(620px, 94vw); }
+.diag pre { background: var(--paper-2); border-radius: 10px; padding: 12px; font-size: 11.5px; line-height: 1.55; max-height: 50vh; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 0 0 14px; }
+.diag-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.img-off { display: inline-block; font-size: 12.5px; color: var(--ink-3); background: var(--paper-2); padding: 6px 10px; border-radius: 8px; }

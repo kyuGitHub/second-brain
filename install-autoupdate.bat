@@ -19,6 +19,9 @@ if errorlevel 1 (
 set "MIN="
 set /p MIN=몇 분마다 올릴까요? (엔터 = 60): 
 if "%MIN%"=="" set MIN=60
+rem 숫자가 아니면 60분, 5분보다 짧으면 5분으로
+for /f "delims=0123456789" %%a in ("%MIN%") do set MIN=60
+if %MIN% LSS 5 set MIN=5
 schtasks /Create /F /SC MINUTE /MO %MIN% /TN "SecondBrainUpload" /TR "\"%~dp0scripts\auto-upload.bat\"" > nul
 if errorlevel 1 (
   echo [!] 작업 스케줄러 등록에 실패했어요. 회사 PC 정책으로 막혀 있을 수 있어요.

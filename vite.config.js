@@ -1,4 +1,8 @@
 import { defineConfig } from 'vite';
+import { execSync } from 'node:child_process';
+
+// 화면에 보여줄 앱 버전(커밋 앞 7자리)과 빌드 시각 — 문제 신고 때 어느 버전인지 알 수 있게
+const sha = (process.env.GITHUB_SHA || (() => { try { return execSync('git rev-parse HEAD').toString().trim(); } catch { return 'dev'; } })()).slice(0, 7);
 
 // 배포 환경에 빈 값(VITE_...=)이 있으면 .env.production 의 값을 덮어써 버리므로 지운다
 for (const k of Object.keys(process.env)) if (k.startsWith('VITE_') && !process.env[k]) delete process.env[k];
@@ -11,4 +15,5 @@ export default defineConfig(({ command }) => ({
   publicDir: command === 'serve' ? 'public' : false,
   server: { port: 5173, watch: { ignored: ['**/public/data/**', '**/vault/**'] } },
   build: { chunkSizeWarningLimit: 2000 },
+  define: { __APP_VERSION__: JSON.stringify(sha), __BUILD_TIME__: JSON.stringify(new Date().toISOString()) },
 }));

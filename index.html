@@ -57,7 +57,7 @@
         <ul class="legend" id="edge-legend"></ul>
       </section>
 
-      <footer class="sb-foot" id="built-at"></footer>
+      <footer class="sb-foot"><span id="built-at"></span><span class="foot-r"><span id="app-ver"></span> · <button type="button" class="link-btn" id="diag-btn">진단 정보</button></span></footer>
     </aside>
 
     <!-- 가운데: 그래프 -->
@@ -109,6 +109,12 @@
       <dt><kbd>?</kbd></dt><dd>이 도움말 열기</dd>
     </dl>
     <form method="dialog"><button class="ghost-btn" autofocus>닫기</button></form>
+  </dialog>
+  <dialog id="diag" class="kbd-help diag" aria-labelledby="diag-title">
+    <h2 id="diag-title">진단 정보</h2>
+    <p class="hint" style="margin:0 0 10px">문제가 생기면 아래 내용을 복사해서 관리자에게 보내 주세요. 비밀번호·노트 내용은 들어 있지 않아요.</p>
+    <pre id="diag-text"></pre>
+    <form method="dialog" class="diag-actions"><button type="button" class="ghost-btn" id="diag-copy">복사</button><button class="ghost-btn">닫기</button></form>
   </dialog>
   <script type="module" src="/src/main.js"></script>
 </body>

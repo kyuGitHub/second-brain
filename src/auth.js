@@ -121,6 +121,8 @@ export async function gate(start) {
   supabase.auth.onAuthStateChange((event, session) => {
     if (event === 'PASSWORD_RECOVERY') needsPassword = true;
     if (event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') setTimeout(() => route(session), 0);
+    // 다른 탭에서 로그아웃했거나 세션이 끊기면 로그인 화면으로 (데이터가 화면에 남지 않게)
+    if (event === 'SIGNED_OUT') location.reload();
   });
   const { data } = await supabase.auth.getSession();
   route(data.session);

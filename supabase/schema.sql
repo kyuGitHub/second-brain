@@ -1,7 +1,7 @@
 -- 세컨브레인 · Supabase 설정
 -- Supabase 대시보드 → SQL Editor → New query 에 전체를 붙여넣고 Run.
 -- 여러 번 실행해도 안전합니다 (if not exists / or replace).
--- 어드민 제너레이터와 같은 Supabase 프로젝트를 써도 됩니다. 그 경우에도 아래 1절의 명단에 있는 계정만 그래프를 볼 수 있어요.
+-- ⚠ 이 프로젝트에 로그인 계정이 있는 사람은 모두 데이터를 볼 수 있어요. 다른 서비스와 같은 프로젝트를 쓰지 말고, 가입 허용은 꺼 두세요.
 
 -- 1. 열람 허용 명단 -----------------------------------------------------------
 -- 노트를 올리는(업로드) 계정만 이 명단에 넣어요. 보기는 Supabase 에 추가한 계정이면 누구나 가능해요.
@@ -162,3 +162,24 @@ begin
 end $$;
 revoke all on function public.brain_usage(int) from public, anon;
 grant execute on function public.brain_usage(int) to authenticated;
+
+-- 5. 보안 보강 -------------------------------------------------------------------
+-- ① AI 질문 기록은 서버 함수(ask)만 쓴다: 브라우저에서 직접 넣는 규칙을 없앤다 (본인 열람은 그대로)
+drop policy if exists "brain_questions: member insert own" on public.brain_questions;
+
+-- ② 사용 기록은 시간·사용자를 서버가 정한다 (미래 날짜·다른 사람 이름으로 넣기 방지)
+create or replace function public.brain_events_stamp() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  new.at := now();
+  new.user_id := auth.uid();
+  new.key := left(new.key, 200);
+  new.title := left(new.title, 300);
+  return new;
+end $$;
+drop trigger if exists brain_events_stamp on public.brain_events;
+create trigger brain_events_stamp before insert on public.brain_events
+  for each row execute function public.brain_events_stamp();
+
+-- ③ AI 질문에 외부 자료(웹 검색) 사용 여부와 출처를 함께 저장
+alter table public.brain_questions add column if not exists web boolean not null default false;
+alter table public.brain_questions add column if not exists sources jsonb not null default '[]';

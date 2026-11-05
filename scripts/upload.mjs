@@ -109,6 +109,8 @@ await put('history.json', history);
 const searchFile = path.join(ROOT, 'public', 'data', 'search.json');
 if (fs.existsSync(searchFile)) await put('search.json', JSON.parse(fs.readFileSync(searchFile, 'utf8'))); // 본문 검색용
 for (const [k, obj] of Object.entries(chunks)) await put(`notes/${k}.json`, obj);
-await sb.storage.from(BUCKET).remove(['notes.json']); // 예전 한 덩어리 파일 정리
+// 예전 한 덩어리 파일과, 이번에 노트가 하나도 없는 묶음(지운·숨긴 노트가 남아 있을 수 있음)을 정리
+const stale = ['notes.json', ...'0123456789abcdef'.split('').filter((k) => !chunks[k]).map((k) => `notes/${k}.json`)];
+await sb.storage.from(BUCKET).remove(stale);
 await sb.auth.signOut();
 console.log(`✔ 업로드 완료: 노트 ${graph.meta.noteCount}개. 웹사이트를 새로 고치면 바로 보여요.`);

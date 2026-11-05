@@ -8,7 +8,7 @@ import matter from 'gray-matter';
 import { marked } from 'marked';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const OUT = path.join(ROOT, 'public', 'data');
+const OUT = process.env.SB_OUT ? path.resolve(process.env.SB_OUT) : path.join(ROOT, 'public', 'data'); // SB_OUT: 테스트용 출력 폴더
 
 // 노트 유형. 프런트매터 type 에 영어 또는 한글로 적으면 된다.
 const TYPE_ALIASES = {

@@ -5,6 +5,7 @@ import { gate } from './auth.js';
 import { loadGraph, loadNoteHtml, loadHistory, loadSearch, LOCAL } from './data.js';
 import { logEvent, loadUsage, askAvailable, askClaude, loadMyQuestions } from './usage.js';
 import { marked } from 'marked';
+import { cleanNote, cleanAnswer, safeHref, csvCell } from './sanitize.js';
 import ForceGraph3D from '3d-force-graph';
 import SpriteText from 'three-spritetext';
 import * as THREE from 'three';
@@ -957,7 +958,9 @@ function openOverview({ back = false } = {}) {
 /* ───────────── AI 질문 ───────────── */
 // 1) 브라우저에서 질문과 관련된 문서를 고른다 (요구사항 ID → 제목·속성 → 본문 순으로 점수)
 // 2) 서버 함수(ask)가 그 문서만 근거로 Claude 에게 답을 받고, 질문·답을 DB 에 남긴다
-const askThread = []; // 이번 대화 { q, a, refs, error, pending }
+const askThread = []; // 이번 대화 { q, a, refs, sources, web, error, pending }
+// 외부 자료(웹 검색) 함께 쓰기 — 이 브라우저에 기억
+let askWeb = (() => { try { return localStorage.getItem('sb-ask-web') === '1'; } catch { return false; } })();
 const STOP = new Set('알려줘 알려 줘 해줘 해주세요 정리 정리해줘 요약 요약해줘 무엇 뭐 뭔가 어떤 어떻게 있어 있나 있는지 있나요 관련 관련된 대해 대해서 내용 정도 그리고 또는 그 이 저 및 등 좀 주요 전체 모두 목록 설명 설명해줘 뭐야 뭐지 무엇인가 알고 싶어 궁금해'.split(' '));
 const JOSA = /(으로써|으로서|에서는|에서도|에서|에게|으로|로는|이랑|하고|까지|부터|처럼|보다|이나|에는|에도|과는|와는|은|는|이|가|을|를|의|에|로|와|과|도|만|랑|요)$/;
 function askTerms(q) {
@@ -1021,7 +1024,7 @@ function askCatalog(q) {
   const scoped = reqs.filter((n) => words.some((w) => [n.props['업무'], n.props['대분류'], n.props['중분류']].join(' ').toLowerCase().includes(w)));
   return (scoped.length >= 20 ? scoped : reqs).map(line).join('\n').slice(0, 60000);
 }
-const mdHtml = (t) => marked.parse(String(t || '').replace(/</g, '&lt;'), { gfm: true, breaks: true });
+const mdHtml = (t) => cleanAnswer(marked.parse(String(t || '').replace(/</g, '&lt;'), { gfm: true, breaks: true }));
 function askItemHtml(it, i) {
   const refs = (it.refs || []).map((id) => byId.get(id)).filter(Boolean);
   const cited = refs.filter((n) => { const rid = n.props?.['요구사항ID']; return it.a && (rid ? it.a.includes(rid) : it.a.includes(n.title)); });
@@ -1029,11 +1032,13 @@ function askItemHtml(it, i) {
   const li = (n) => `<button type="button" class="li-item" data-id="${n.id}"><span class="dot" style="background:${TYPES[n.type]?.light}"></span><span class="li-main"><span class="li-t">${esc(n.title)}</span></span></button>`;
   return `<div class="ask-item-wrap">
     <div class="ask-q">${esc(it.q)}</div>
-    ${it.pending ? `<div class="ask-a ask-wait"><span class="ask-dots"><i></i><i></i><i></i></span> 관련 문서 ${it.refs?.length || 0}개를 보고 답을 만들고 있어요… (20~40초)</div>`
+    ${it.pending ? `<div class="ask-a ask-wait"><span class="ask-dots"><i></i><i></i><i></i></span> 관련 문서 ${it.refs?.length || 0}개${it.web ? '와 웹 자료' : ''}를 보고 답을 만들고 있어요… (${it.web ? '30~60' : '20~40'}초)</div>`
       : it.error ? `<div class="ask-a ask-err">${esc(it.error)}</div>`
       : `<div class="ask-a md" data-ans="${i}">${mdHtml(it.a)}</div>`}
     ${!it.pending && refs.length ? `<details class="ask-refs"${cited.length ? '' : ' open'}><summary>근거 문서 ${cited.length ? `${cited.length}개 (함께 본 문서 ${rest.length}개)` : `${refs.length}개`}</summary>
       <div class="ov-recent">${cited.map(li).join('')}${rest.length ? `<div class="ask-sub">함께 본 문서</div>${rest.map(li).join('')}` : ''}</div></details>` : ''}
+    ${!it.pending && it.sources?.length ? `<details class="ask-refs ask-web" open><summary>외부 출처 ${it.sources.length}개 <span class="ask-web-tag">웹</span></summary>
+      <ul class="ask-src">${it.sources.map((x) => safeHref(x.url) ? `<li><a href="${esc(safeHref(x.url))}" target="_blank" rel="noopener noreferrer">${esc(x.title || x.url)}</a><span>${esc(new URL(x.url).hostname)}</span></li>` : '').join('')}</ul></details>` : ''}
     ${!it.pending && !it.error && !refs.length ? '<p class="hint" style="margin:6px 0 0">질문과 맞는 문서를 찾지 못해서 문서 없이 답했어요.</p>' : ''}
   </div>`;
 }
@@ -1051,23 +1056,25 @@ async function renderAskHistory() {
   if (!rows) { box.innerHTML = `<p class="hint" style="margin:0">${askAvailable() ? '질문 기록을 불러오지 못했어요. Supabase 에 supabase/ask.sql 을 실행했는지 확인해 주세요.' : '웹사이트에 로그인해서 쓸 때 기록돼요.'}</p>`; return; }
   window.__askRows = rows;
   box.innerHTML = rows.length ? rows.map((r, i) => `<button type="button" class="li-item" data-askrow="${i}"><span class="ask-ic sm">✦</span>
-      <span class="li-main"><span class="li-t">${esc(r.question)}</span><span class="li-s">${esc(fmtWhen(r.at))}${r.ok ? '' : ' · 실패'}</span></span></button>`).join('')
+      <span class="li-main"><span class="li-t">${esc(r.question)}</span><span class="li-s">${esc(fmtWhen(r.at))}${r.web ? ' · 웹 포함' : ''}${r.ok ? '' : ' · 실패'}</span></span></button>`).join('')
     : '<p class="hint" style="margin:0">아직 질문한 기록이 없어요.</p>';
 }
+let askBusy = false; // 답을 기다리는 동안 같은 질문이 두 번 가지 않게
 async function sendAsk(q) {
-  q = q.trim(); if (!q) return;
+  q = q.trim(); if (!q || askBusy) return;
   if (!askAvailable()) { askThread.push({ q, error: '웹사이트(로그인 후)에서만 AI 질문을 쓸 수 있어요. 내 PC 미리보기에서는 쓸 수 없어요.' }); renderAskThread(); return; }
   if (!FULL) { const f = await loadSearch(); if (f) { FULL = f; fullLc.clear(); } }
   const prev = askThread.filter((x) => x.a && !x.error);
   const picked = askDocs(q, prev.map((x) => x.q));
-  const it = { q, refs: picked.map((p) => p.n.id), pending: true };
+  const it = { q, refs: picked.map((p) => p.n.id), pending: true, web: askWeb };
+  askBusy = true;
   askThread.push(it); renderAskThread();
   const btn = $('ask-send'); if (btn) btn.disabled = true;
   try {
-    const res = await askClaude({ question: q, docs: picked.map((p) => p.doc), catalog: askCatalog(q), history: prev.slice(-3).map((x) => ({ q: x.q, a: x.a })) });
-    it.a = res.answer || '(빈 답)';
+    const res = await askClaude({ question: q, web: askWeb, docs: picked.map((p) => p.doc), catalog: askCatalog(q), history: prev.slice(-3).map((x) => ({ q: x.q, a: x.a })) });
+    it.a = res.answer || '(빈 답)'; it.sources = Array.isArray(res.sources) ? res.sources : [];
   } catch (e) { it.error = e.message; }
-  it.pending = false;
+  it.pending = false; askBusy = false;
   if ($('ask-send')) $('ask-send').disabled = false;
   renderAskThread(); renderAskHistory();
 }
@@ -1086,13 +1093,16 @@ function openAsk({ back = false, question = '' } = {}) {
     <div id="ask-thread" class="ask-thread"></div>
     <form id="ask-form" class="ask-form">
       <textarea id="ask-q" rows="3" maxlength="1000" placeholder="${isMobile() ? '질문을 입력하세요' : '예: 주택담보대출 심사 단계 요구사항 요약해줘  (Enter 보내기 · Shift+Enter 줄바꿈)'}"></textarea>
-      <div class="ask-actions"><button type="button" class="link-btn" id="ask-new">새 대화</button><button type="submit" class="ask-send" id="ask-send">질문하기</button></div>
+      <div class="ask-actions"><span class="ask-left"><button type="button" class="link-btn" id="ask-new">새 대화</button>
+        <label class="ask-webtoggle" title="법령·감독규정·업계 사례 같은 공개 자료를 웹에서 함께 찾아요. 검색어에는 내부 정보를 넣지 않아요."><input type="checkbox" id="ask-web" ${askWeb ? 'checked' : ''}/> 외부 자료(웹)도 함께</label></span>
+        <button type="submit" class="ask-send" id="ask-send">질문하기</button></div>
     </form>
     <h3 class="ov-h">내 질문 기록 <span class="ov-h-s">나만 볼 수 있어요</span></h3>
     <div id="ask-history" class="ov-recent"><p class="hint" style="margin:0">불러오는 중…</p></div>`;
   const ta = $('ask-q');
   $('ask-form').onsubmit = (e) => { e.preventDefault(); const v = ta.value; ta.value = ''; sendAsk(v); };
   ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('ask-form').requestSubmit(); } };
+  $('ask-web').onchange = (e) => { askWeb = e.target.checked; try { localStorage.setItem('sb-ask-web', askWeb ? '1' : '0'); } catch { /* 무시 */ } };
   $('ask-new').onclick = () => { askThread.length = 0; renderAskThread(); ta.focus(); };
   renderAskThread(); renderAskHistory();
   refresh();
@@ -1137,7 +1147,7 @@ $('panel-body').addEventListener('click', (e) => {
   const ex = e.target.closest('[data-ex]');
   if (ex) { sendAsk(ex.dataset.ex); return; }
   const ar = e.target.closest('[data-askrow]');
-  if (ar) { const r = window.__askRows?.[Number(ar.dataset.askrow)]; if (r) { askThread.push({ q: r.question, a: r.answer || '', error: r.ok ? null : (r.error || '실패한 질문이에요'), refs: Array.isArray(r.refs) ? r.refs : [] }); renderAskThread(); } return; }
+  if (ar) { const r = window.__askRows?.[Number(ar.dataset.askrow)]; if (r) { askThread.push({ q: r.question, a: r.answer || '', error: r.ok ? null : ({ pending: '답을 받지 못한 질문이에요', rate_limited: '사용 한도로 보내지 못한 질문이에요' }[r.error] || r.error || '실패한 질문이에요'), refs: Array.isArray(r.refs) ? r.refs : [], sources: Array.isArray(r.sources) ? r.sources : [] }); renderAskThread(); } return; }
   const miss = e.target.closest('[data-miss]');
   if (miss) { sIn.value = miss.dataset.miss; sIn.focus(); sIn.dispatchEvent(new Event('input')); return; }
   const ov = e.target.closest('[data-ov]');
@@ -1321,7 +1331,7 @@ $('table-view').addEventListener('keydown', (e) => {
   const tr = e.target.closest('tr[data-id]'); if (tr) openNote(tr.dataset.id);
 });
 function downloadCsv(rows, cols = T_COLS, name = 'RIS_requirements') {
-  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const q = (v) => `"${csvCell(v).replace(/"/g, '""')}"`;
   const lines = [cols.map((c) => q(c.label)).join(','), ...rows.map((n) => cols.map((c) => q(c.get(n))).join(','))];
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }); // 엑셀에서 한글이 깨지지 않도록 BOM
   const a = document.createElement('a');
@@ -1482,20 +1492,22 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '?' && !typing()) { e.preventDefault(); const d = $('kbd-help'); if (!d.open) d.showModal?.(); return; }
   if (e.altKey && e.key === 'ArrowLeft' && !typing() && state.stack.length) { e.preventDefault(); $('panel-back').click(); return; }
   if (F.search && e.key === '/' && document.activeElement !== sIn && !typing()) { e.preventDefault(); sIn.focus(); }
-  if (e.key === 'Escape' && document.activeElement !== sIn && (state.selected || state.panel)) closePanel();
+  if (e.key === 'Escape' && document.activeElement !== sIn && !typing() && (state.selected || state.panel)) closePanel();
 });
 
 /* ───────────── 노트 패널 ───────────── */
+// 주소의 %xx 가 깨져 있어도 멈추지 않게 (예: #/req/%E0)
+const dec = (v) => { try { return decodeURIComponent(v); } catch { return v; } };
 function onHash() {
   const h = location.hash;
   let m;
   if ((m = h.match(/^#\/req\/(.+)$/))) {
-    const n = reqIndex.get(decodeURIComponent(m[1]).toUpperCase());
+    const n = reqIndex.get(dec(m[1]).toUpperCase());
     if (n) { openNote(n.id, { fromHash: true }); return; }
   }
-  if ((m = h.match(/^#\/note\/(.+)$/)) && byId.has(decodeURIComponent(m[1]))) { openNote(decodeURIComponent(m[1]), { fromHash: true }); return; }
+  if ((m = h.match(/^#\/note\/(.+)$/)) && byId.has(dec(m[1]))) { openNote(dec(m[1]), { fromHash: true }); return; }
   if ((m = h.match(/^#\/cat\/(.+)$/))) {
-    const [scheme, ...path] = m[1].split('/').map(decodeURIComponent);
+    const [scheme, ...path] = m[1].split('/').map(dec);
     if (catDefs().some((d) => d.key === scheme) && path.length && applyCat(scheme, path)) { if (!VIEWS[state.view].table) openList(); return; }
   }
   if (state.selected) closePanel({ fromHash: true });
@@ -1522,7 +1534,7 @@ async function openNote(id, { fromHash = false, back = false } = {}) {
   // 분류 경로(업무·대분류·중분류)와 겹치는 주제, 문서 유형 태그(주제/…)는 빼서 덜 복잡하게
   const crumbVals = new Set([n.props?.['업무'], n.props?.['대분류'], n.props?.['중분류']].filter(Boolean));
   const chips = [...n.topics.filter((x) => !crumbVals.has(x)).map((x) => `<button class="chip" data-topic="${esc(x)}">${esc(x)}</button>`), ...n.tags.filter((x) => !/^주제\//.test(x)).map((x) => `<button class="chip" data-tag="${esc(x)}">#${esc(x)}</button>`)].join('');
-  const meta = [n.date && `수정 ${n.date}`, n.docType, n.folder && n.folder.replace(/^\d+_/, ''), n.url && `<a href="${esc(n.url)}" target="_blank" rel="noopener">원문 링크 ↗</a>`].filter(Boolean).join('<span>·</span>');
+  const meta = [n.date && `수정 ${esc(n.date)}`, n.docType && esc(n.docType), n.folder && esc(n.folder.replace(/^\d+_/, '')), safeHref(n.url) && `<a href="${esc(safeHref(n.url))}" target="_blank" rel="noopener noreferrer">원문 링크 ↗</a>`].filter(Boolean).join('<span>·</span>');
   const body = $('panel-body');
   body.innerHTML = `
     <div class="p-type"><span class="dot" style="background:${t?.light}"></span>${t?.ko || n.type}${t?.en ? ' · ' + t.en : ''}</div>
@@ -1543,7 +1555,7 @@ async function openNote(id, { fromHash = false, back = false } = {}) {
   if (n.type === 'topic') { $('md').remove(); return; }
   try {
     const html = await loadNoteHtml(n.file);
-    if (state.selected === id) { $('md').innerHTML = html || '<p style="color:#8b8a82">본문이 비어 있어요.</p>'; linkifyIds($('md'), n.id); }
+    if (state.selected === id) { $('md').innerHTML = html ? cleanNote(html) : '<p style="color:#8b8a82">본문이 비어 있어요.</p>'; linkifyIds($('md'), n.id); }
   } catch {
     if (state.selected === id) $('md').innerHTML = '<p style="color:#8b8a82">본문을 불러오지 못했어요.</p>';
   }

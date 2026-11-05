@@ -41,6 +41,6 @@ export async function askClaude(payload) {
 // 내 질문 기록 (본인 것만 보임)
 export async function loadMyQuestions(limit = 20) {
   if (!askAvailable()) return null;
-  const { data, error } = await supabase.from('brain_questions').select('id, at, question, answer, refs, ok, error').order('at', { ascending: false }).limit(limit);
+  const { data, error } = await supabase.from('brain_questions').select('*').order('at', { ascending: false }).limit(limit);
   return error ? null : data;
 }

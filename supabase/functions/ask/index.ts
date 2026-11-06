@@ -5,7 +5,7 @@
 // Claude API 키는 이 함수의 비밀 값(ANTHROPIC_API_KEY)에만 있어요. 브라우저로는 절대 나가지 않아요.
 //
 // 배포: Supabase 대시보드 → Edge Functions → ask → Code 에 이 파일 내용 붙여넣기 → Deploy
-//       함수 설정에서 "Enforce JWT verification" 끄기 (ES256 로그인 토큰을 앞단이 거부함 — 로그인 확인은 아래 코드가 함)
+//       "Enforce JWT verification" 은 꺼도 돼요 (로그인 확인은 아래 코드가 인증 서버에 직접 함)
 // 비밀 값(Edge Functions → Secrets):
 //   ANTHROPIC_API_KEY (필수)
 //   ALLOWED_ORIGINS   (선택) 이 함수를 부를 수 있는 사이트 주소, 쉼표로 구분. 기본: GitHub Pages 주소

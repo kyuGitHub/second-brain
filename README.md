@@ -43,7 +43,7 @@ GitHub (프로그램만) ──▶ Vercel 자동 배포 ──▶ 접속 → 로
 1. SQL Editor 에서 `supabase/ask.sql` 실행 (질문·답 기록 표, 검색어 기록)
 2. **Edge Functions → Deploy a new function → Via Editor** → 이름 `ask`, `supabase/functions/ask/index.ts` 내용 붙여넣기 → Deploy
    - 대시보드가 주소용 이름을 따로 붙이면(예: `.../functions/v1/swift-api`) 그 이름을 `.env.production` 의 `VITE_ASK_FUNCTION` 에 적어요 (지금: `swift-api`)
-   - 함수 설정의 **Enforce JWT verification(Verify JWT)은 꺼요.** 이 프로젝트의 로그인 토큰(ES256)을 앞단 검증이 거부해서 `Invalid JWT` 가 나요. 로그인 확인은 함수 코드가 인증 서버에 직접 해요.
+   - 함수 설정의 Enforce JWT verification(Verify JWT)은 꺼도 되고 켜도 돼요. 로그인 확인은 함수 코드가 인증 서버에 직접 해요 (새 서명 키를 쓰는 프로젝트에서 Supabase 가 권하는 방식).
 3. **Edge Functions → Secrets** 에 `ANTHROPIC_API_KEY` (Claude API 키) 추가 — 키는 서버에만 있고 브라우저·GitHub 로 나가지 않아요
 - 동작: 브라우저는 질문만 보냄 → `ask` 함수가 로그인·사용량을 확인하고 **비공개 저장소의 노트에서 직접** 관련 문서 12개를 고름 (누락·반영 여부 질문이면 요구사항 전체 목록도) → Claude(`claude-opus-5-5`)가 부족하면 `search_docs` 로 다른 표현·동의어로 다시 찾고 `read_doc` 으로 문서 전체를 읽어 답 (최대 3번) → 질문·답·실제로 본 문서·토큰 수를 `brain_questions` 에 저장
 - 함수 비밀 값(선택): `ALLOWED_ORIGINS` 부를 수 있는 사이트 주소(기본 GitHub Pages), `PROJECT_CONTEXT` AI 에게 알려줄 프로젝트 소개

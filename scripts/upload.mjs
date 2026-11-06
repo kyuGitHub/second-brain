@@ -9,6 +9,8 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
+import zlib from 'node:zlib';
+import crypto from 'node:crypto';
 import { build } from './build-graph.mjs';
 import { diffGraphs, isEmpty } from './history.mjs';
 import { hasKeychain, keychainGet, keychainSet } from './secret.mjs';
@@ -109,9 +111,11 @@ if (!prev || !prevHasFp) {
 history = history.slice(0, 300);
 
 // 4) 올리기
-const put = async (name, obj) => {
-  const body = new Blob([JSON.stringify(obj)], { type: 'application/json' });
-  const { error } = await sb.storage.from(BUCKET).upload(name, body, { upsert: true, contentType: 'application/json', cacheControl: '0' });
+const put = async (name, obj, { gzip = false } = {}) => {
+  const text = typeof obj === 'string' ? obj : JSON.stringify(obj);
+  // 압축본(.gz)은 받는 양이 약 1/4 — 웹사이트·AI 함수가 먼저 찾고, 없으면 원본을 받아요
+  const body = gzip ? new Blob([zlib.gzipSync(text, { level: 9 })], { type: 'application/gzip' }) : new Blob([text], { type: 'application/json' });
+  const { error } = await sb.storage.from(BUCKET).upload(name, body, { upsert: true, contentType: gzip ? 'application/gzip' : 'application/json', cacheControl: '0' });
   if (error) {
     const msg = String(error.message || error);
     if (/row-level security|unauthorized|403/i.test(msg)) fail(`업로드 권한이 없어요. Supabase 의 brain_members 에 ${email} 을(를) can_upload = true 로 추가해 주세요.`);
@@ -121,11 +125,24 @@ const put = async (name, obj) => {
   const mb = (body.size / 1024 / 1024).toFixed(2);
   console.log(`  ↑ ${name} (${mb} MB)`);
 };
-await put('graph.json', graph);
-await put('history.json', history);
+// 본문 묶음은 내용이 바뀐 것만 올린다 (지문을 graph.meta.chunkHash 에 남겨 다음 업로드와 비교)
+const chunkText = Object.fromEntries(Object.entries(chunks).map(([k, obj]) => [k, JSON.stringify(obj)]));
+graph.meta.chunkHash = Object.fromEntries(Object.entries(chunkText).map(([k, t]) => [k, crypto.createHash('sha1').update(t).digest('hex').slice(0, 12)]));
+const prevHash = prev?.meta?.chunkHash || {};
+const changedChunks = Object.keys(chunkText).filter((k) => FORCE || prevHash[k] !== graph.meta.chunkHash[k]);
+// 본문 묶음을 먼저 올리고 그래프를 마지막에 → 중간에 끊겨도 그래프가 없는 본문을 가리키지 않음
+for (const k of changedChunks) await put(`notes/${k}.json`, chunkText[k]);
+console.log(`  · 본문 묶음 ${changedChunks.length}/${Object.keys(chunkText).length}개 올림 (나머지는 바뀐 게 없어요)`);
 const searchFile = path.join(ROOT, 'public', 'data', 'search.json');
-if (fs.existsSync(searchFile)) await put('search.json', JSON.parse(fs.readFileSync(searchFile, 'utf8'))); // 본문 검색용
-for (const [k, obj] of Object.entries(chunks)) await put(`notes/${k}.json`, obj);
+if (fs.existsSync(searchFile)) {
+  const st = fs.readFileSync(searchFile, 'utf8'); // 본문 검색용
+  await put('search.json.gz', st, { gzip: true });
+  await put('search.json', st); // 원본도 둔다 (예전 화면·brain-read 함수용)
+}
+await put('history.json', history);
+const graphText = JSON.stringify(graph);
+await put('graph.json.gz', graphText, { gzip: true });
+await put('graph.json', graphText);
 // 예전 한 덩어리 파일과, 이번에 노트가 하나도 없는 묶음(지운·숨긴 노트가 남아 있을 수 있음)을 정리
 const stale = ['notes.json', ...'0123456789abcdef'.split('').filter((k) => !chunks[k]).map((k) => `notes/${k}.json`)];
 await sb.storage.from(BUCKET).remove(stale);

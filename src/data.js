@@ -10,6 +10,16 @@ async function remoteJson(path) {
   if (error) throw error;
   return JSON.parse(await data.text());
 }
+// 큰 파일(graph·search)은 압축본(.gz)을 먼저 받고, 없거나 브라우저가 못 풀면 원본을 받는다
+async function remoteJsonGz(path) {
+  if (typeof DecompressionStream === 'function') {
+    try {
+      const { data, error } = await supabase.storage.from(BUCKET).download(path + '.gz');
+      if (!error && data) return JSON.parse(await new Response(data.stream().pipeThrough(new DecompressionStream('gzip'))).text());
+    } catch { /* 원본으로 */ }
+  }
+  return remoteJson(path);
+}
 
 export async function loadGraph() {
   if (LOCAL) {
@@ -17,7 +27,7 @@ export async function loadGraph() {
     if (!res.ok) throw new Error(String(res.status));
     return res.json();
   }
-  return remoteJson('graph.json');
+  return remoteJsonGz('graph.json');
 }
 
 // 본문은 16묶음(notes/0.json ~ notes/f.json)으로 나뉘어 있어서 필요한 묶음만 받는다
@@ -45,6 +55,6 @@ let searchP = null;
 export function loadSearch() {
   searchP ??= (LOCAL
     ? fetch('data/search.json', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null))
-    : remoteJson('search.json')).catch(() => null);
+    : remoteJsonGz('search.json')).catch(() => null);
   return searchP;
 }

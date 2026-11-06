@@ -100,6 +100,7 @@ async function loadData(admin: any) {
   const notes: Note[] = (g.nodes || []).filter((n: Note) => n.type !== 'topic');
   const byId = new Map(notes.map((n) => [n.id, n]));
   const reqIdx = new Map(notes.filter((n) => n.props?.['요구사항ID']).map((n) => [String(n.props!['요구사항ID']).toUpperCase(), n]));
+  try { if (g.meta?.domain?.idPattern) ID_RE = new RegExp(`\\b(?:${g.meta.domain.idPattern})\\b`, 'gi'); } catch { /* 잘못된 형식이면 기본값 */ }
   DATA = { at: Date.now(), notes, full: full || {}, lc: new Map(), byId, reqIdx };
   return DATA;
 }
@@ -113,7 +114,8 @@ const lowOf = (D: NonNullable<typeof DATA>, n: Note) => {
 /* ───────── 검색 (키워드 + 희소도 가중치) ───────── */
 const STOP = new Set('알려줘 알려 줘 해줘 해주세요 정리 정리해줘 요약 요약해줘 무엇 뭐 뭔가 어떤 어떻게 있어 있나 있는지 있나요 관련 관련된 대해 대해서 내용 정도 그리고 또는 그 이 저 및 등 좀 주요 전체 모두 목록 설명 설명해줘 뭐야 뭐지 무엇인가 알고 싶어 궁금해 요구사항 문서'.split(' '));
 const JOSA = /(으로써|으로서|에서는|에서도|에서|에게|으로|로는|이랑|하고|까지|부터|처럼|보다|이나|에는|에도|과는|와는|이야|이에요|인가|은|는|이|가|을|를|의|에|로|와|과|도|만|랑|요)$/;
-const ID_RE = /\bREQ-[A-Z]{1,5}-\d{1,5}\b/gi;
+// 요구사항 ID 형식: 업로드한 데이터의 meta.domain.idPattern (없으면 REQ-XX-000)
+let ID_RE = /\bREQ-[A-Z]{1,5}-\d{1,5}\b/gi;
 function terms(q: string) {
   const ids = [...q.toUpperCase().matchAll(ID_RE)].map((m) => m[0]);
   const words = q.toLowerCase().replace(ID_RE, ' ').split(/[^\p{L}\p{N}]+/u)

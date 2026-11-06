@@ -44,7 +44,8 @@ test('그래프의 검색어는 짧게, 본문 전체는 search.json 에', () =>
   assert.ok(n.search.length <= 300);
   const full = JSON.parse(fs.readFileSync(path.join(out, 'search.json'), 'utf8'));
   assert.ok(full[n.id].includes('마지막단어'));
-  assert.equal(g.meta.format, 2);
+  assert.equal(g.meta.format, 3);
+  assert.ok(g.meta.domain?.idPattern, 'domain.idPattern 이 meta 에 있어야 함');
 });
 
 test('본문 HTML 파일이 만들어지고 지문(fp)이 붙는다', () => {

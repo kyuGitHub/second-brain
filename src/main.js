@@ -1029,7 +1029,7 @@ function askItemHtml(it, i) {
 function renderAskThread() {
   const box = $('ask-thread'); if (!box) return;
   box.innerHTML = askThread.length ? askThread.map(askItemHtml).join('')
-    : `<div class="ask-empty"><p class="hint" style="margin:0 0 8px">이렇게 물어보세요</p><div class="chips">${['주택담보대출 심사 단계 요구사항 요약해줘', 'REQ-AP-181 은 어떤 요구사항이야?', '본인인증 관련 요구사항은 어디에 있어?', '취소된 요구사항 중 비대면 관련된 건?'].map((x) => `<button type="button" class="chip" data-ex="${esc(x)}">${esc(x)}</button>`).join('')}</div></div>`;
+    : `<div class="ask-empty"><p class="hint" style="margin:0 0 8px">이렇게 물어보세요</p><div class="chips">${(DOM().askExamples || ['요구사항을 요약해줘']).slice(0, 6).map((x) => `<button type="button" class="chip" data-ex="${esc(x)}">${esc(x)}</button>`).join('')}</div></div>`;
   box.querySelectorAll('[data-ans]').forEach((el) => linkifyIds(el));
   const last = box.lastElementChild; if (last && askThread.length) last.scrollIntoView({ block: 'nearest' });
 }
@@ -1185,7 +1185,7 @@ function historyHtml(n) {
 const T_COLS = [
   { k: 'id', label: '요구사항 ID', get: (n) => n.props?.['요구사항ID'] || '' },
   { k: 'lv', label: '수준', get: (n) => n.lv || '' },
-  { k: 'name', label: '요구사항명', get: (n) => n.props?.['요구정의명'] || n.title.replace(/^REQ-[A-Z]+-\d+\s*/, '') },
+  { k: 'name', label: '요구사항명', get: (n) => n.props?.['요구정의명'] || n.title.replace(new RegExp(`^(?:${ID_SRC()})\\s*`, 'i'), '') },
   { k: 'biz', label: '업무', get: (n) => n.props?.['업무'] || '' },
   { k: 'd1', label: '대분류', get: (n) => n.props?.['대분류'] || '' },
   { k: 'd2', label: '중분류', get: (n) => n.props?.['중분류'] || '' },
@@ -1260,7 +1260,7 @@ function renderMeetingTable(box) {
   if (focusedQ) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
   $('m-kind').onchange = (e) => { mKind = e.target.value; renderTable(); };
   $('m-days').onchange = (e) => { mDays = e.target.value; renderTable(); };
-  $('t-csv').onclick = () => downloadCsv(rows, cols, 'RIS_meetings');
+  $('t-csv').onclick = () => downloadCsv(rows, cols, `${filePrefix()}_meetings`);
 }
 
 function renderTable() {
@@ -1313,7 +1313,7 @@ $('table-view').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   const tr = e.target.closest('tr[data-id]'); if (tr) openNote(tr.dataset.id);
 });
-function downloadCsv(rows, cols = T_COLS, name = 'RIS_requirements') {
+function downloadCsv(rows, cols = T_COLS, name = `${filePrefix()}_requirements`) {
   const q = (v) => `"${csvCell(v).replace(/"/g, '""')}"`;
   const lines = [cols.map((c) => q(c.label)).join(','), ...rows.map((n) => cols.map((c) => q(c.get(n))).join(','))];
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }); // 엑셀에서 한글이 깨지지 않도록 BOM
@@ -1333,10 +1333,15 @@ function crumbHtml(n) {
   if (!p || !p.length) return '';
   return `<nav class="p-crumb" aria-label="분류 경로">${p.map((x, i) => `<button type="button" data-crumb="${esc(JSON.stringify(p.slice(0, i + 1)))}">${esc(catLabel(x))}</button>`).join('<span>›</span>')}</nav>`;
 }
+// 프로젝트 고유값 (config.json 의 domain → graph meta)
+const DOM = () => G?.meta?.domain || {};
+const ID_SRC = () => DOM().idPattern || 'REQ-[A-Z]{1,5}-\\d{1,5}';
+const idRe = (flags = '') => new RegExp(`\\b(?:${ID_SRC()})\\b`, flags);
+const filePrefix = () => DOM().filePrefix || 'SB';
 // 본문 속 "REQ-AP-123" 같은 글자를 그 요구사항으로 가는 링크로 바꾼다
 function linkifyIds(root, selfId) {
-  const re = /\bREQ-[A-Z]{1,5}-\d{1,5}\b/g;
-  const has = /\bREQ-[A-Z]{1,5}-\d{1,5}\b/; // test 용 (g 플래그가 없어야 매번 처음부터 찾음)
+  const re = idRe('gi');
+  const has = idRe('i'); // test 용 (g 플래그가 없어야 매번 처음부터 찾음)
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (t) => (t.parentElement.closest('a, code, pre') || !has.test(t.nodeValue) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
   const texts = []; while (walker.nextNode()) texts.push(walker.currentNode);
   for (const t of texts) {

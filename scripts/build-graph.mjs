@@ -345,7 +345,8 @@ export function build({ quiet = false } = {}) {
       title: cfg.siteTitle || 'Second Brain',
       subtitle: cfg.siteSubtitle || '',
       builtAt: new Date().toISOString(),
-      format: 2, // 데이터 형식 버전. 바뀌면 노트 변경이 없어도 한 번 업로드한다 (2: search.json·요구사항 수준)
+      format: 3, // 데이터 형식 버전. 바뀌면 노트 변경이 없어도 한 번 업로드한다 (2: search.json·요구사항 수준, 3: 압축본·domain)
+      domain: cfg.domain || {}, // 프로젝트 고유값: 요구사항 ID 형식, 파일 이름 앞부분, AI 질문 예시
       noteCount: notes.length,
       features: cfg.features || {},
       typeLabels: cfg.typeLabels || {},

@@ -20,12 +20,30 @@ function same(a: string, b: string) {
 Deno.serve(async (req) => {
   if (req.method !== 'GET') return new Response('method not allowed', { status: 405 });
 
-  // 키는 x-brain-key 또는 Authorization(Bearer 유무 상관없이) 어느 쪽으로 와도 받는다
-  const expected = Deno.env.get('BRAIN_READ_KEY') ?? '';
-  const auth = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
-  const given = [req.headers.get('x-brain-key') ?? '', auth];
+  // 키는 x-brain-key 또는 Authorization 어느 쪽으로 와도 받는다
+  // (Authorization 은 그대로 / "Bearer·Token 등 단어 + 키" / Basic(아이디:키) 모두 확인)
+  const expected = (Deno.env.get('BRAIN_READ_KEY') ?? '').trim();
+  const xKey = (req.headers.get('x-brain-key') ?? '').trim();
+  const authRaw = (req.headers.get('authorization') ?? '').trim();
+  const m = authRaw.match(/^(\S+)\s+(.+)$/);
+  const scheme = m ? m[1] : authRaw ? 'raw' : 'none';
+  const given = [xKey, authRaw];
+  if (m) given.push(m[2].trim());
+  if (m && /^basic$/i.test(m[1])) {
+    try {
+      const dec = atob(m[2].trim());
+      const i = dec.indexOf(':');
+      given.push(dec, dec.slice(0, i), dec.slice(i + 1));
+    } catch { /* 잘못된 Basic 값은 무시 */ }
+  }
   if (expected.length < 32 || !given.some((g) => same(g, expected))) {
-    return new Response('unauthorized', { status: 401 });
+    // 진단용: 키 값·길이는 절대 내보내지 않고, 어떤 형식으로 왔는지만 알려줌
+    return Response.json({
+      error: 'unauthorized',
+      secret_set: expected.length >= 32,
+      x_brain_key: xKey ? 'present' : 'missing',
+      authorization: scheme === 'raw' || scheme === 'none' ? scheme : scheme.slice(0, 12),
+    }, { status: 401 });
   }
 
   const path = new URL(req.url).searchParams.get('path') ?? 'graph.json';

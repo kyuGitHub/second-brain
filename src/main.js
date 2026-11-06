@@ -102,6 +102,7 @@ function diagText() {
     `앱 버전: ${__APP_VERSION__} (빌드 ${__BUILD_TIME__})`,
     `실행 모드: ${LOCAL ? '내 PC 미리보기' : '웹'} · 주소: ${location.origin}${location.pathname}${location.hash}`,
     `데이터: ${G ? `업로드 ${G.meta.builtAt} · 형식 ${G.meta.format || 1} · 노드 ${G.nodes.length} · 연결 ${G.links.length}` : '아직 못 불러옴'}`,
+    `가입 허용: ${signupOpen == null ? '확인 안 됨' : signupOpen ? '⚠ 켜짐' : '꺼짐(정상)'}`,
     `변경 이력: ${HISTORY.length}건 · 본문 검색 데이터: ${FULL ? '받음' : '아직'} · AI 함수: ${import.meta.env.VITE_ASK_FUNCTION || 'ask'}`,
     `화면: ${state.view} 보기 · 카테고리 ${state.scheme}${state.cat ? ' › ' + state.cat.path.join(' › ') : ''} · 패널 ${state.panel?.kind || '닫힘'}`,
     `브라우저: ${navigator.userAgent}`,
@@ -114,6 +115,22 @@ $('diag-btn').addEventListener('click', () => { $('diag-text').textContent = dia
 $('diag-copy').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(diagText()); toast('진단 정보를 복사했어요'); } catch { toast('복사하지 못했어요. 글자를 직접 선택해 복사해 주세요'); }
 });
+
+// 가입 허용이 켜져 있으면 아무나 가입해서 볼 수 있으니 화면 위에 경고를 띄운다 (Supabase 공개 설정값으로 확인)
+let signupOpen = null;
+async function checkSignup() {
+  if (LOCAL) return;
+  try {
+    const u = import.meta.env.VITE_SUPABASE_URL, k = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const st = await (await fetch(`${u}/auth/v1/settings`, { headers: { apikey: k } })).json();
+    signupOpen = st?.disable_signup === false;
+    if (signupOpen) {
+      const b = document.createElement('div'); b.className = 'sec-banner'; b.setAttribute('role', 'alert');
+      b.textContent = '⚠ Supabase 의 "새 사용자 가입 허용"이 켜져 있어요. 아무나 가입해서 이 자료를 볼 수 있으니 관리자는 바로 꺼 주세요 (Authentication → Sign In / Providers).';
+      document.body.prepend(b);
+    }
+  } catch { /* 확인 실패는 무시 */ }
+}
 
 /* ───────────── 데이터 불러오기 ───────────── */
 async function load() {
@@ -137,6 +154,7 @@ async function load() {
     $('stat-nodes').textContent = (G.nodes.length - auxIds.size).toLocaleString();
     $('stat-links').textContent = G.links.filter((l) => !auxIds.has(l.source) && !auxIds.has(l.target)).length.toLocaleString();
   }
+  checkSignup();
   // 데이터 신선도: 마지막 업로드가 언제인지, 하루가 넘으면 경고
   {
     const ageH = (Date.now() - Date.parse(G.meta.builtAt)) / 36e5;

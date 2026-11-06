@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { build } from './build-graph.mjs';
 import { diffGraphs, isEmpty } from './history.mjs';
+import { hasKeychain, keychainGet, keychainSet } from './secret.mjs';
 
 const FORCE = process.argv.includes('--force'); // 바뀐 게 없어도 올리기
 
@@ -37,10 +38,20 @@ const ask = (q, hidden = false) => new Promise((resolve) => {
   rl.question(q, (a) => { rl.close(); if (hidden) process.stdout.write('\n'); resolve(a.trim()); });
 });
 
-// 자동 실행(사람이 없는 창)에서는 물어볼 수 없으니 .env 의 값이 꼭 있어야 한다
-if ((!env.SB_EMAIL || !env.SB_PASSWORD) && !process.stdin.isTTY) fail('.env 에 SB_EMAIL 과 SB_PASSWORD 가 없어서 자동으로 올릴 수 없어요.');
+// Mac: .env 에 비밀번호가 남아 있으면 키체인으로 옮기고 .env 에서 지운다 (한 번만, 자동)
+const envFile = path.join(ROOT, '.env');
+if (hasKeychain && env.SB_EMAIL && fs.existsSync(envFile) && /^SB_PASSWORD=.+/m.test(fs.readFileSync(envFile, 'utf8')) && !process.env.SB_PASSWORD) {
+  if (keychainSet(env.SB_EMAIL, env.SB_PASSWORD)) {
+    const rest = fs.readFileSync(envFile, 'utf8').split(/\r?\n/).filter((l) => !/^SB_PASSWORD=/.test(l)).join('\n');
+    fs.writeFileSync(envFile, rest, { mode: 0o600 });
+    console.log('  · 비밀번호를 .env 에서 Mac 키체인(second-brain-upload)으로 옮겼어요.');
+  } else console.log('  ! 키체인에 저장하지 못해서 .env 의 비밀번호를 그대로 써요.');
+}
+const keyPw = !env.SB_PASSWORD && env.SB_EMAIL ? keychainGet(env.SB_EMAIL) : null;
+// 자동 실행(사람이 없는 창)에서는 물어볼 수 없으니 저장된 값이 꼭 있어야 한다
+if ((!env.SB_EMAIL || !(env.SB_PASSWORD || keyPw)) && !process.stdin.isTTY) fail('저장된 로그인 정보(.env 의 SB_EMAIL, 비밀번호는 .env 또는 Mac 키체인)가 없어서 자동으로 올릴 수 없어요.');
 const email = env.SB_EMAIL || await ask('세컨브레인 계정 이메일: ');
-const password = env.SB_PASSWORD || await ask('비밀번호: ', true);
+const password = env.SB_PASSWORD || keyPw || await ask('비밀번호: ', true);
 
 // 1) 그래프 만들기
 const graph = build();
@@ -53,6 +64,12 @@ for (const n of graph.nodes) {
   if (!fs.existsSync(p)) continue;
   (chunks[n.file[0]] ??= {})[n.file] = JSON.parse(fs.readFileSync(p, 'utf8')).html;
 }
+
+// 가입 허용이 켜져 있으면 아무나 가입해서 볼 수 있으므로 매번 확인해 경고한다
+try {
+  const st = await (await fetch(`${url}/auth/v1/settings`, { headers: { apikey: key } })).json();
+  if (st && st.disable_signup === false) console.log('  ⚠⚠ Supabase 의 "새 사용자 가입 허용"이 켜져 있어요! 아무나 가입해서 노트를 볼 수 있어요. Authentication 설정에서 꺼 주세요.');
+} catch { /* 확인 실패는 업로드를 막지 않음 */ }
 
 // 2) 로그인
 const sb = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });

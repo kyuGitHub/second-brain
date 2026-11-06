@@ -985,74 +985,11 @@ function openOverview({ back = false } = {}) {
 }
 
 /* ───────────── AI 질문 ───────────── */
-// 1) 브라우저에서 질문과 관련된 문서를 고른다 (요구사항 ID → 제목·속성 → 본문 순으로 점수)
-// 2) 서버 함수(ask)가 그 문서만 근거로 Claude 에게 답을 받고, 질문·답을 DB 에 남긴다
+// 서버 함수(ask)가 비공개 저장소의 노트에서 관련 문서를 직접 찾고, 부족하면 Claude 가 다른 표현으로 더 찾아 답한다.
+// 브라우저는 질문·이전 대화·웹 사용 여부만 보낸다.
 const askThread = []; // 이번 대화 { q, a, refs, sources, web, error, pending }
 // 외부 자료(웹 검색) 함께 쓰기 — 이 브라우저에 기억
 let askWeb = (() => { try { return localStorage.getItem('sb-ask-web') === '1'; } catch { return false; } })();
-const STOP = new Set('알려줘 알려 줘 해줘 해주세요 정리 정리해줘 요약 요약해줘 무엇 뭐 뭔가 어떤 어떻게 있어 있나 있는지 있나요 관련 관련된 대해 대해서 내용 정도 그리고 또는 그 이 저 및 등 좀 주요 전체 모두 목록 설명 설명해줘 뭐야 뭐지 무엇인가 알고 싶어 궁금해'.split(' '));
-const JOSA = /(으로써|으로서|에서는|에서도|에서|에게|으로|로는|이랑|하고|까지|부터|처럼|보다|이나|에는|에도|과는|와는|은|는|이|가|을|를|의|에|로|와|과|도|만|랑|요)$/;
-function askTerms(q) {
-  const ids = [...q.toUpperCase().matchAll(/\bREQ-[A-Z]{1,5}-\d{1,5}\b/g)].map((m) => m[0]);
-  const words = q.toLowerCase().replace(/\bREQ-[A-Z]{1,5}-\d{1,5}\b/gi, ' ').split(/[^\p{L}\p{N}]+/u)
-    .map((w) => (w.length > 2 ? w.replace(JOSA, '') : w)).filter((w) => w.length >= 2 && !STOP.has(w));
-  return { ids, words: [...new Set(words)] };
-}
-function askDocs(q, prevQs = []) {
-  // 이어지는 질문이면 앞 질문의 단어도 약하게(0.3) 반영한다
-  const cur = askTerms(q), old = askTerms(prevQs.slice(-2).join(' '));
-  const ids = cur.ids.length ? cur.ids : old.ids;
-  const weight = new Map(old.words.map((w) => [w, 0.3]));
-  for (const w of cur.words) weight.set(w, 1);
-  const words = [...weight.keys()];
-  const pool = G.nodes.filter((n) => n.type !== 'topic');
-  const N = pool.length;
-  const df = new Map(words.map((w) => [w, pool.filter((n) => bodyText(n).includes(w) || n.title.toLowerCase().includes(w)).length]));
-  const scored = pool.map((n) => {
-    const rid = String(n.props?.['요구사항ID'] || '').toUpperCase();
-    let s = ids.includes(rid) ? 1000 : 0;
-    const title = n.title.toLowerCase(), props = Object.values(n.props || {}).join(' ').toLowerCase(), body = bodyText(n);
-    for (const w of words) {
-      const d = df.get(w); if (!d) continue;
-      const idf = Math.log(1 + N / d);
-      let hit = 0;
-      if (title.includes(w)) hit += 5;
-      if (props.includes(w)) hit += 3;
-      let c = 0, i = body.indexOf(w); while (i >= 0 && c < 6) { c++; i = body.indexOf(w, i + w.length); }
-      hit += c;
-      s += hit * idf * weight.get(w);
-    }
-    if (s && n.aux) s *= 0.6;                                  // 보조 자료는 조금 낮게
-    if (s && n.props?.['처리결과'] === '취소선') s *= 0.5;      // 취소된 요구사항도 낮게
-    return { n, s };
-  }).filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
-  // 요구사항과 회의록·참고 자료가 한쪽으로 쏠리지 않게 각각 최소 5개씩 먼저 고르고, 나머지는 점수순
-  const isReq = (n) => !!n.props?.['요구사항ID'];
-  const order = [...scored.filter((x) => isReq(x.n)).slice(0, 5), ...scored.filter((x) => !isReq(x.n)).slice(0, 5)];
-  for (const x of scored) if (!order.includes(x)) order.push(x);
-  const picked = [], LIMIT = 16, BUDGET = 56000; let used = 0;
-  for (const { n } of order) {
-    if (picked.length >= LIMIT || used >= BUDGET) break;
-    const text = (FULL?.[n.id] || n.search || '').slice(0, Math.min(4000, BUDGET - used));
-    used += text.length;
-    picked.push({ n, doc: {
-      id: n.id, title: n.title, kind: n.props?.['요구사항ID'] ? `요구사항(${n.lv || '세부'})` : (n.docType || TYPES[n.type]?.ko || ''),
-      props: Object.entries(n.props || {}).filter(([k]) => k !== 'updated').map(([k, v]) => `${k}: ${v}`).join(' / '), text,
-    } });
-  }
-  return picked;
-}
-// "빠진 기능", "반영됐나" 같은 대조 질문이면 요구사항 전체 목록(ID·이름·분류)을 함께 보낸다
-function askCatalog(q) {
-  if (!/빠진|빠져|누락|없는 기능|반영(됐|되었|여부|안)|커버|대조|중복|몇\s?개/.test(q)) return '';
-  const reqs = G.nodes.filter((n) => n.props?.['요구사항ID'] && n.props['처리결과'] !== '취소선');
-  const line = (n) => [n.props['요구사항ID'], n.props['요구정의명'] || n.title, [n.props['업무'], n.props['대분류'], n.props['중분류']].filter(Boolean).join('>'), n.lv || ''].join(' | ');
-  // 질문에 나온 분류(예: ADMIN, 주택담보대출)가 있으면 그 범위만
-  const GENERIC = /^(요구사항|기능|회의록|회의|인터뷰|문서|화면|프로세스|공통)/;
-  const words = askTerms(q).words.filter((w) => !GENERIC.test(w));
-  const scoped = reqs.filter((n) => words.some((w) => [n.props['업무'], n.props['대분류'], n.props['중분류']].join(' ').toLowerCase().includes(w)));
-  return (scoped.length >= 20 ? scoped : reqs).map(line).join('\n').slice(0, 60000);
-}
 const mdHtml = (t) => cleanAnswer(marked.parse(String(t || '').replace(/</g, '&lt;'), { gfm: true, breaks: true }));
 function askItemHtml(it, i) {
   const refs = (it.refs || []).map((id) => byId.get(id)).filter(Boolean);
@@ -1061,7 +998,7 @@ function askItemHtml(it, i) {
   const li = (n) => `<button type="button" class="li-item" data-id="${n.id}"><span class="dot" style="background:${TYPES[n.type]?.light}"></span><span class="li-main"><span class="li-t">${esc(n.title)}</span></span></button>`;
   return `<div class="ask-item-wrap">
     <div class="ask-q">${esc(it.q)}</div>
-    ${it.pending ? `<div class="ask-a ask-wait"><span class="ask-dots"><i></i><i></i><i></i></span> 관련 문서 ${it.refs?.length || 0}개${it.web ? '와 웹 자료' : ''}를 보고 답을 만들고 있어요… (${it.web ? '30~60' : '20~40'}초)</div>`
+    ${it.pending ? `<div class="ask-a ask-wait"><span class="ask-dots"><i></i><i></i><i></i></span> 관련 문서${it.web ? '와 웹 자료' : ''}를 찾아 읽고 답을 만들고 있어요… (${it.web ? '30~90' : '20~60'}초)</div>`
       : it.error ? `<div class="ask-a ask-err">${esc(it.error)}</div>`
       : `<div class="ask-a md" data-ans="${i}">${mdHtml(it.a)}</div>`}
     ${!it.pending && refs.length ? `<details class="ask-refs"${cited.length ? '' : ' open'}><summary>근거 문서 ${cited.length ? `${cited.length}개 (함께 본 문서 ${rest.length}개)` : `${refs.length}개`}</summary>
@@ -1092,16 +1029,15 @@ let askBusy = false; // 답을 기다리는 동안 같은 질문이 두 번 가�
 async function sendAsk(q) {
   q = q.trim(); if (!q || askBusy) return;
   if (!askAvailable()) { askThread.push({ q, error: '웹사이트(로그인 후)에서만 AI 질문을 쓸 수 있어요. 내 PC 미리보기에서는 쓸 수 없어요.' }); renderAskThread(); return; }
-  if (!FULL) { const f = await loadSearch(); if (f) { FULL = f; fullLc.clear(); } }
   const prev = askThread.filter((x) => x.a && !x.error);
-  const picked = askDocs(q, prev.map((x) => x.q));
-  const it = { q, refs: picked.map((p) => p.n.id), pending: true, web: askWeb };
+  const it = { q, refs: [], pending: true, web: askWeb };
   askBusy = true;
   askThread.push(it); renderAskThread();
   const btn = $('ask-send'); if (btn) btn.disabled = true;
   try {
-    const res = await askClaude({ question: q, web: askWeb, docs: picked.map((p) => p.doc), catalog: askCatalog(q), history: prev.slice(-3).map((x) => ({ q: x.q, a: x.a })) });
+    const res = await askClaude({ question: q, web: askWeb, history: prev.slice(-3).map((x) => ({ q: x.q, a: x.a })) });
     it.a = res.answer || '(빈 답)'; it.sources = Array.isArray(res.sources) ? res.sources : [];
+    it.refs = Array.isArray(res.refs) ? res.refs : [];
   } catch (e) { it.error = e.message; }
   it.pending = false; askBusy = false;
   if ($('ask-send')) $('ask-send').disabled = false;
@@ -1118,7 +1054,7 @@ function openAsk({ back = false, question = '' } = {}) {
   $('panel-body').innerHTML = `
     <div class="p-type"><span class="ask-ic sm">✦</span>AI 질문 · Claude</div>
     <h2 class="p-title">요구사항 물어보기</h2>
-    <p class="hint" style="margin:0 0 14px">질문과 관련된 문서를 찾아 Claude 가 그 문서만 보고 답해요. 답은 틀릴 수 있으니 근거 문서를 꼭 확인하세요.</p>
+    <p class="hint" style="margin:0 0 14px">질문과 관련된 문서를 찾아 Claude 가 읽고 답해요. 부족하면 다른 표현으로 더 찾아봐요. 답은 틀릴 수 있으니 근거 문서를 꼭 확인하세요.</p>
     <div id="ask-thread" class="ask-thread"></div>
     <form id="ask-form" class="ask-form">
       <textarea id="ask-q" rows="3" maxlength="1000" placeholder="${isMobile() ? '질문을 입력하세요' : '예: 주택담보대출 심사 단계 요구사항 요약해줘  (Enter 보내기 · Shift+Enter 줄바꿈)'}"></textarea>

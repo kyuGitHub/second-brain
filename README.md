@@ -44,7 +44,8 @@ GitHub (프로그램만) ──▶ Vercel 자동 배포 ──▶ 접속 → 로
 2. **Edge Functions → Deploy a new function → Via Editor** → 이름 `ask`, `supabase/functions/ask/index.ts` 내용 붙여넣기 → Deploy
    - 대시보드가 주소용 이름을 따로 붙이면(예: `.../functions/v1/swift-api`) 그 이름을 `.env.production` 의 `VITE_ASK_FUNCTION` 에 적어요 (지금: `swift-api`)
 3. **Edge Functions → Secrets** 에 `ANTHROPIC_API_KEY` (Claude API 키) 추가 — 키는 서버에만 있고 브라우저·GitHub 로 나가지 않아요
-- 동작: 브라우저가 질문과 관련된 문서를 최대 16개(요구사항·회의록 섞어서) 고르고, 누락·반영 여부 질문이면 요구사항 전체 목록도 함께 보냄 → `ask` 함수가 로그인·사용량(1인 1시간 30회)을 확인 → Claude(`claude-opus-5-5`, effort medium)가 그 문서만 근거로 답 → 질문·답·근거 문서·토큰 수를 `brain_questions` 에 저장
+- 동작: 브라우저는 질문만 보냄 → `ask` 함수가 로그인·사용량을 확인하고 **비공개 저장소의 노트에서 직접** 관련 문서 12개를 고름 (누락·반영 여부 질문이면 요구사항 전체 목록도) → Claude(`claude-opus-5-5`)가 부족하면 `search_docs` 로 다른 표현·동의어로 다시 찾고 `read_doc` 으로 문서 전체를 읽어 답 (최대 3번) → 질문·답·실제로 본 문서·토큰 수를 `brain_questions` 에 저장
+- 함수 비밀 값(선택): `ALLOWED_ORIGINS` 부를 수 있는 사이트 주소(기본 GitHub Pages), `PROJECT_CONTEXT` AI 에게 알려줄 프로젝트 소개
 - 질문 기록은 본인만 볼 수 있고, 개요의 사용 현황에는 질문 수 합계만 나와요.
 - **외부 자료(웹) 함께**: 질문 칸 아래 체크박스를 켜면 법령·감독규정·업계 사례 같은 공개 자료를 웹에서 함께 찾아요 (검색어에 내부 정보는 넣지 않도록 지시). 답의 "외부 출처"에 링크가 나와요.
 - **보안·비용 상한**: 1인 1시간 30회·하루 100회, 동시에 여러 번 보내도 한도를 넘지 못해요 (먼저 기록 후 셈). 질문 기록은 서버 함수만 쓰고, 답 1건 최대 8,000 토큰. Anthropic 콘솔에서 월 사용 한도(spend limit)도 꼭 정해 두세요.

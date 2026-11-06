@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
       error: 'unauthorized',
       secret_set: expected.length >= 32,
       x_brain_key: xKey ? 'present' : 'missing',
-      authorization: scheme === 'raw' || scheme === 'none' ? scheme : scheme.slice(0, 12),
+      authorization: /^(raw|none|bearer|basic|token|key|apikey|api-key)$/i.test(scheme) ? scheme : 'other',
     }, { status: 401 });
   }
 
